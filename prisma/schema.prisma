@@ -1,0 +1,392 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  // output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==========================================
+// 1. USER & AUTHENTICATION (Better Auth Core)
+// ==========================================
+
+model User {
+  id            String    @id @default(cuid()) // ⚡ CUID for faster indexing
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  
+  phone         String?   @unique
+  role          Role      @default(CUSTOMER)
+  
+  // Profile Details
+  dob           DateTime?
+  gender        String?
+  isVeg         Boolean   @default(false)      // Veg-mode toggle
+  language      String    @default("en")
+
+  // Auth Relations
+  sessions      Session[]
+  accounts      Account[]
+  
+  // App Relations
+  addresses     Address[]
+  orders        Order[]           @relation("CustomerOrders")
+  reviews       Review[]
+  wallet        Wallet?
+  savedPayments SavedPaymentMethod[]
+  
+  // Role Specific Profiles
+  restaurant    Restaurant?       // Relation if user is a Manager
+  driverProfile DriverProfile?    // Relation if user is a Rider
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime
+  updatedAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime
+  updatedAt             DateTime
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+
+  @@map("verification")
+}
+
+// ==========================================
+// 2. CORE BUSINESS LOGIC
+// ==========================================
+
+// 📍 Addresses
+model Address {
+  id          String  @id @default(cuid())
+  userId      String
+  user        User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type        String  @default("HOME") // HOME, WORK, OTHER
+  addressLine String
+  landmark    String?
+  lat         Float   // GPS Latitude
+  lng         Float   // GPS Longitude
+  isDefault   Boolean @default(false)
+}
+
+// 🏪 Restaurants
+model Restaurant {
+  id             String         @id @default(cuid())
+  managerId      String         @unique
+  manager        User           @relation(fields: [managerId], references: [id])
+  
+  name           String
+  description    String?
+  image          String?        // Cover Image URL
+  costForTwo     Int            // e.g. 500 (approx cost)
+  cuisineTypes   String[]       // ["North Indian", "Chinese"]
+  
+  address        String
+  lat            Float
+  lng            Float
+  
+  isActive       Boolean        @default(true)  // Admin ban/unban
+  isOpen         Boolean        @default(true)  // Manager open/close
+  isVerified     Boolean        @default(false) // Admin approval
+  
+  fssaiCode      String?        // License ID
+  gstNumber      String?
+  
+  menuCategories MenuCategory[]
+  orders         Order[]
+  reviews        Review[]
+  
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+}
+
+// 📂 Menu Structure
+model MenuCategory {
+  id           String     @id @default(cuid())
+  name         String     // "Starters", "Main Course"
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  items        MenuItem[]
+}
+
+// 🍔 Food Items
+model MenuItem {
+  id           String       @id @default(cuid())
+  categoryId   String
+  category     MenuCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  
+  name         String
+  description  String?
+  price        Float
+  image        String?
+  type         VegType      // VEG, NON_VEG, etc.
+  
+  isAvailable  Boolean      @default(true)
+  isBestseller Boolean      @default(false)
+  spiceLevel   String?      // "Medium", "Spicy"
+  prepTime     Int?         // In minutes
+  
+  orderItems   OrderItem[]
+  
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+// 🛵 Delivery Partners (Riders)
+model DriverProfile {
+  id              String       @id @default(cuid())
+  userId          String       @unique
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  status          DriverStatus @default(OFFLINE)
+  currentLat      Float?
+  currentLng      Float?
+  
+  vehicleType     String       // "Bike", "Scooter"
+  licenseNumber   String
+  vehiclePlate    String
+  
+  rating          Float        @default(5.0)
+  totalDeliveries Int          @default(0)
+  
+  orders          Order[]
+  
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+}
+
+// ==========================================
+// 3. ORDER ENGINE & FINANCIALS
+// ==========================================
+
+model Order {
+  id                 String      @id @default(cuid())
+  
+  // Participants
+  customerId         String
+  customer           User        @relation("CustomerOrders", fields: [customerId], references: [id])
+  
+  restaurantId       String
+  restaurant         Restaurant  @relation(fields: [restaurantId], references: [id])
+  
+  driverId           String?
+  driver             DriverProfile? @relation(fields: [driverId], references: [id])
+  
+  // Status & Tracking
+  status             OrderStatus @default(PLACED)
+  otp                String?     // Delivery confirmation
+  cancellationReason String?
+  
+  // Money
+  itemTotal          Float       // Sum of items
+  tax                Float       // GST
+  deliveryCharge     Float
+  platformFee        Float
+  driverTip          Float       @default(0)
+  totalAmount        Float       // Final Amount to Pay
+  
+  paymentMode        PaymentMethod
+  isPaid             Boolean     @default(false)
+  
+  // Timestamps
+  placedAt           DateTime    @default(now())
+  acceptedAt         DateTime?
+  pickedUpAt         DateTime?
+  deliveredAt        DateTime?
+  
+  // Relations
+  items              OrderItem[]
+  payments           Payment[]
+  refunds            Refund[]
+  review             Review?
+}
+
+// 🧾 Line Items (Pivot)
+model OrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  
+  quantity   Int
+  price      Float    // Snapshot of price at time of order
+}
+
+// 💳 Payments
+model Payment {
+  id              String        @id @default(cuid())
+  orderId         String
+  order           Order         @relation(fields: [orderId], references: [id])
+  
+  amount          Float
+  method          PaymentMethod
+  status          PaymentStatus @default(PENDING)
+  
+  transactionId   String?       @unique // From Razorpay/Stripe
+  gatewayResponse Json?         // Full log
+  
+  createdAt       DateTime      @default(now())
+}
+
+// 🏦 Saved Cards/UPI
+model SavedPaymentMethod {
+  id           String  @id @default(cuid())
+  userId       String
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type         String  // "CARD", "UPI"
+  displayValue String  // "**** 4242"
+  token        String  // Secure token from Gateway
+  isDefault    Boolean @default(false)
+}
+
+// 💰 Wallet System
+model Wallet {
+  id           String              @id @default(cuid())
+  userId       String              @unique
+  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance      Float               @default(0.0)
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id        String   @id @default(cuid())
+  walletId  String
+  wallet    Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amount    Float    // +500 (Credit), -200 (Debit)
+  type      String   // "REFUND", "TOPUP", "ORDER_PAYMENT"
+  createdAt DateTime @default(now())
+}
+
+// 💸 Refunds
+model Refund {
+  id        String   @id @default(cuid())
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id])
+  amount    Float
+  reason    String
+  status    String   // "PROCESSED", "PENDING"
+  isAuto    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// ⭐ Ratings
+model Review {
+  id             String     @id @default(cuid())
+  orderId        String     @unique
+  order          Order      @relation(fields: [orderId], references: [id])
+  
+  userId         String
+  user           User       @relation(fields: [userId], references: [id])
+  
+  restaurantId   String
+  restaurant     Restaurant @relation(fields: [restaurantId], references: [id])
+  
+  foodRating     Int        // 1-5
+  deliveryRating Int        // 1-5
+  comment        String?
+  
+  createdAt      DateTime   @default(now())
+}
+
+// ==========================================
+// 4. ENUMS (Business Rules)
+// ==========================================
+
+enum Role {
+  CUSTOMER
+  ADMIN
+  RESTAURANT_MANAGER
+  DELIVERY_PARTNER
+  SUPPORT_AGENT
+}
+
+enum OrderStatus {
+  PLACED
+  ACCEPTED
+  PREPARING
+  READY
+  PICKED_UP
+  ON_THE_WAY
+  DELIVERED
+  CANCELLED
+  REFUSED
+}
+
+enum DriverStatus {
+  OFFLINE
+  ONLINE
+  BUSY
+}
+
+enum VegType {
+  VEG
+  NON_VEG
+  VEGAN
+  EGG
+}
+
+enum PaymentMethod {
+  UPI
+  CARD
+  NETBANKING
+  WALLET
+  COD
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+  REFUNDED
+}
