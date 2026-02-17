@@ -1,18 +1,26 @@
 import { Controller, Post, Get, Body, Req, Res } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
 import { auth } from "../lib/auth";
 import { toNodeHandler, fromNodeHeaders } from 'better-auth/node';
 import type { Request, Response } from 'express';
 import { SignUpDto, SignInDto, SocialSignInDto } from './dto/auth.dto';
 
+@ApiTags('Account & Profile')
 @Controller('/api/auth')
 export class AuthController {
 
     @Post("sign-up/email")
+    @ApiOperation({
+        summary: 'Sign up with email',
+        description: 'Create a new user account using email and password'
+    })
+    @ApiResponse({ status: 201, description: 'Account created successfully' })
+    @ApiResponse({ status: 400, description: 'Invalid input or email already exists' })
     async signUp(
         @Body() body: SignUpDto,
         @Req() req: Request,
         @Res() res: Response
-    ): Promise<void> { // Change: Use void because we use res.json()
+    ): Promise<void> {
         const response = await auth.api.signUpEmail({
             body: { ...body },
             headers: fromNodeHeaders(req.headers)
@@ -21,6 +29,12 @@ export class AuthController {
     }
 
     @Post('sign-in/email')
+    @ApiOperation({
+        summary: 'Sign in with email',
+        description: 'Authenticate using email and password, returns session cookie'
+    })
+    @ApiResponse({ status: 200, description: 'Successfully authenticated' })
+    @ApiResponse({ status: 401, description: 'Invalid credentials' })
     async signIn(
         @Body() body: SignInDto,
         @Req() req: Request,
@@ -38,6 +52,11 @@ export class AuthController {
     }
 
     @Post('sign-out')
+    @ApiOperation({
+        summary: 'Sign out',
+        description: 'Invalidate current session and clear cookies'
+    })
+    @ApiResponse({ status: 200, description: 'Successfully signed out' })
     async signOut(
         @Req() req: Request,
         @Res() res: Response,
@@ -53,6 +72,11 @@ export class AuthController {
     }
 
     @Post('sign-in/social')
+    @ApiOperation({
+        summary: 'Social authentication',
+        description: 'Sign in using Google or other OAuth providers'
+    })
+    @ApiResponse({ status: 200, description: 'Redirects to OAuth provider' })
     async socialSignIn(
         @Body() body: SocialSignInDto,
         @Res() res: Response,
@@ -71,6 +95,10 @@ export class AuthController {
     }
 
     @Get('*')
+    @ApiOperation({
+        summary: 'Auth handler',
+        description: 'Handles OAuth callbacks and other GET-based auth flows'
+    })
     async handleGetRoutes(
         @Req() req: Request,
         @Res() res: Response
