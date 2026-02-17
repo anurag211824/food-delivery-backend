@@ -2,66 +2,112 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { Restaurant } from '@prisma/client';
+import { Restaurant, VegType } from '@prisma/client';
+import { SearchRestaurantsDto } from './dto/search-restaurants.dto';
 
 @Injectable()
 export class RestaurantsService {
+  constructor(private prisma: PrismaService) {}
 
-  constructor(private prisma:PrismaService){}
-  async create (createRestaurantDto: CreateRestaurantDto,managerId:string):Promise<Restaurant> {
-
+  async create(createRestaurantDto: CreateRestaurantDto, managerId: string): Promise<Restaurant> {
     const existing = await this.prisma.restaurant.findUnique({
-      where: {managerId}
-    })
+      where: { managerId }
+    });
 
-    if(existing){
+    if (existing) {
       throw new ConflictException("You already have a restaurant");
     }
 
     return this.prisma.restaurant.create({
       data: {
-        name: createRestaurantDto.name,
-        description: createRestaurantDto.description,
-        image: createRestaurantDto.image,
-        costForTwo: createRestaurantDto.costForTwo,
-        cuisineTypes: createRestaurantDto.cuisineTypes,
-        address: createRestaurantDto.address,
-        lat: createRestaurantDto.lat,
-        lng: createRestaurantDto.lng,
+        ...createRestaurantDto,
         managerId,
-        isActive:true,
-        isOpen:true,
-        isVerified:false,
-        fssaiCode: createRestaurantDto.fssaiCode,
-        gstNumber: createRestaurantDto.gstNumber,
+        isActive: true,
+        isOpen: true,
+        isVerified: false,
       }
-    })
-   
+    });
   }
 
-  async findAll() {
-    return await this.prisma.restaurant.findMany({
-      where:{isActive:true}
-    })
-  }
+  // 1. PUBLIC SEARCH LOGIC
+ async search(dto: SearchRestaurantsDto) {
+  const { query, type } = dto; 
 
-  async findOne(id: string) {
-    const restaurant = await this.prisma.restaurant.findUnique({
-      where:{id}
-    })
-
-    if(!restaurant){
-      throw new NotFoundException( `Restaurant with ID ${id} not found`)
+  return this.prisma.restaurant.findMany({
+    where: {
+      isActive: true,
+      AND: [
+        query ? {
+          OR: [
+            { name: { contains: query, mode: 'insensitive' } },
+            { description: { contains: query, mode: 'insensitive' } },
+            { menuCategories: { some: { items: { some: { name: { contains: query, mode: 'insensitive' } } } } } }
+          ]
+        } : {},
+        type ? { menuCategories: { some: { items: { some: { type: type as VegType } } } } } : {},
+      ]
+    },
+    include: {
+      menuCategories: { 
+        include: {
+          items: {
+            where: { isAvailable: true }
+          }
+        }
+      }
     }
+  });
+}
 
-    return restaurant
+  // 2. LISTINGS & DETAILS
+async findAll() {
+  return await this.prisma.restaurant.findMany({
+    where: { isActive: true },
+    select: {
+      id: true,
+      name: true,
+      image: true,
+      costForTwo: true,
+      cuisineTypes: true,
+    }
+  });
+}
+
+async findOne(id: string) {
+  const restaurant = await this.prisma.restaurant.findUnique({
+    where: { id },
+    include: {
+      menuCategories: { 
+        include: {
+          items: true 
+        }
+      },
+      reviews: true 
+    }
+  });
+
+  if (!restaurant) {
+    throw new NotFoundException(`Restaurant with ID ${id} not found`);
+  }
+  return restaurant;
+}
+
+  // 3. MANAGEMENT TOOLS
+  async update(id: string, dto: UpdateRestaurantDto) {
+    try {
+      return await this.prisma.restaurant.update({
+        where: { id },
+        data: dto
+      });
+    } catch (error) {
+      throw new NotFoundException(`Restaurant ${id} not found`);
+    }
   }
 
-  update(id: string, updateRestaurantDto: UpdateRestaurantDto) {
-    return `This action updates a #${id} restaurant`;
-  }
-
-  remove(id: string) {
-    return `This action removes a #${id} restaurant`;
+  async remove(id: string) {
+    return this.prisma.restaurant.update({
+      where: { id },
+      data: { isActive: false } // Soft delete as per your safety plan [cite: 407]
+    });
   }
 }
