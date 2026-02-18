@@ -30,34 +30,44 @@ export class RestaurantsService {
   }
 
   // 1. PUBLIC SEARCH LOGIC
- async search(dto: SearchRestaurantsDto) {
-  const { query, type } = dto; 
+async search(dto: SearchRestaurantsDto) {
+    const { query, type, minRating } = dto;
 
-  return this.prisma.restaurant.findMany({
-    where: {
-      isActive: true,
-      AND: [
-        query ? {
-          OR: [
-            { name: { contains: query, mode: 'insensitive' } },
-            { description: { contains: query, mode: 'insensitive' } },
-            { menuCategories: { some: { items: { some: { name: { contains: query, mode: 'insensitive' } } } } } }
-          ]
-        } : {},
-        type ? { menuCategories: { some: { items: { some: { type: type as VegType } } } } } : {},
-      ]
-    },
-    include: {
-      menuCategories: { 
-        include: {
-          items: {
-            where: { isAvailable: true }
+    return this.prisma.restaurant.findMany({
+      where: {
+        isActive: true, // Only show active restaurants 
+        AND: [
+          // 1. Keyword Search: Name, Description, or Dish Name 
+          query ? {
+            OR: [
+              { name: { contains: query, mode: 'insensitive' } },
+              { description: { contains: query, mode: 'insensitive' } },
+              { menuCategories: { some: { items: { some: { name: { contains: query, mode: 'insensitive' } } } } } }
+            ]
+          } : {},
+          // 2. Veg/Non-Veg Filter
+          type ? { 
+            menuCategories: { 
+              some: { items: { some: { type: type as VegType } } } 
+            } 
+          } : {},
+          // 3. Min Rating Filter 
+          minRating ? { 
+            rating: { gte: Number(minRating) } 
+          } : {},
+        ]
+      },
+      include: {
+        menuCategories: {
+          include: {
+            items: {
+              where: { isAvailable: true } // Only show items currently in stock 
+            }
           }
         }
       }
-    }
-  });
-}
+    });
+  }
 
   // 2. LISTINGS & DETAILS
 async findAll() {

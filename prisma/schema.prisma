@@ -133,14 +133,16 @@ model Restaurant {
   lat     Float
   lng     Float
 
-  isActive   Boolean @default(true) // Admin ban/unban
-  isOpen     Boolean @default(true) // Manager open/close
-  isVerified Boolean @default(false) // Admin approval
+  isActive    Boolean @default(true) // Admin ban/unban
+  isOpen      Boolean @default(true) // Manager open/close
+  isVerified  Boolean @default(false) // Admin approval
+  rating      Float   @default(0)
+  ratingCount Int     @default(0)
 
   fssaiCode String? // License ID
   gstNumber String?
 
-  type VegType @default(VEG)
+  type VegType?
 
   menuCategories MenuCategory[]
   orders         Order[]
@@ -156,7 +158,10 @@ model MenuCategory {
   name         String // "Starters", "Main Course"
   restaurantId String
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
+  type         VegType?
   items        MenuItem[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
 }
 
 // 🍔 Food Items
@@ -169,7 +174,7 @@ model MenuItem {
   description String?
   price       Float
   image       String?
-  type        VegType // VEG, NON_VEG, etc.
+  type        VegType? // VEG, NON_VEG, etc.
 
   isAvailable  Boolean @default(true)
   isBestseller Boolean @default(false)
@@ -197,6 +202,7 @@ model DriverProfile {
   vehiclePlate  String
 
   rating          Float @default(5.0)
+  ratingCount     Int   @default(0)
   totalDeliveries Int   @default(0)
 
   orders Order[]
