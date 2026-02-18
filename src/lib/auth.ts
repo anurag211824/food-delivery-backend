@@ -1,26 +1,32 @@
 import "dotenv/config"
-import {betterAuth} from "better-auth"
+import { betterAuth } from "better-auth"
 import { prismaAdapter } from "better-auth/adapters/prisma"
 import { PrismaClient } from "@prisma/client"
-import  adapter  from "./db-connection"
+import adapter from "./db-connection"
+import { expo } from "@better-auth/expo"
 
-const prisma = new PrismaClient({adapter});
+const prisma = new PrismaClient({ adapter });
 
 export const auth = betterAuth({
-    database: prismaAdapter(prisma,{
+    database: prismaAdapter(prisma, {
         provider: "postgresql"
     }),
     secret: process.env.BETTER_AUTH_SECRET,
-    
+
     socialProviders: {
         google: {
             clientId: process.env.GOOGLE_CLIENT_ID!,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET!
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+            prompt: "select_account"
         }
     },
     emailAndPassword: {
         enabled: true,
     },
+
+    plugins: [expo()],
+
+    trustedOrigins: ["food-delivery-customer://"],
 
     // security : prevent users from settign their own role
 
