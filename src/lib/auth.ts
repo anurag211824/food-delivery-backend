@@ -4,6 +4,7 @@ import { prismaAdapter } from "better-auth/adapters/prisma"
 import { PrismaClient } from "@prisma/client"
 import adapter from "./db-connection"
 import { expo } from "@better-auth/expo"
+import { phoneNumber } from "better-auth/plugins"
 
 const prisma = new PrismaClient({ adapter });
 
@@ -24,7 +25,16 @@ export const auth = betterAuth({
         enabled: true,
     },
 
-    plugins: [expo()],
+    plugins: [expo(),
+        phoneNumber({
+            sendOTP: async ({ phoneNumber, code }) => {
+                // ⚡ INTEGRATION POINT: 
+                // Call your SMS gateway (Twilio/etc.) here to send the 'otp' 
+                // to the 'phoneNumber'.
+                console.log(`Sending OTP ${code} to ${phoneNumber}`);
+            },
+        }),
+    ],
 
     trustedOrigins: ["food-delivery-customer://"],
 
