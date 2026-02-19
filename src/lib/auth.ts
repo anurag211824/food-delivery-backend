@@ -26,14 +26,26 @@ export const auth = betterAuth({
     },
 
     plugins: [expo(),
-        phoneNumber({
-            sendOTP: async ({ phoneNumber, code }) => {
-                // ⚡ INTEGRATION POINT: 
-                // Call your SMS gateway (Twilio/etc.) here to send the 'otp' 
-                // to the 'phoneNumber'.
-                console.log(`Sending OTP ${code} to ${phoneNumber}`);
-            },
-        }),
+    phoneNumber({
+        // ⚡ INTEGRATION POINT: Replace console.log with your real SMS gateway
+        sendOTP: async ({ phoneNumber, code }) => {
+            console.log(`Sending OTP ${code} to ${phoneNumber}`);
+        },
+
+        // Auto-create a user + return a session after OTP is verified.
+        // Without this, verify only marks the phone as verified but never
+        // creates a session for new users.
+        signUpOnVerification: {
+            // better-auth requires an email on the user model; derive a
+            // placeholder so phone-only sign-ups work out of the box.
+            getTempEmail: (phoneNumber) =>
+                `${phoneNumber.replace(/\D/g, "")}@phone.foodapp.local`,
+            getTempName: (phoneNumber) => phoneNumber,
+        },
+
+        otpLength: 6,          // match the 6-digit OTP you're sending
+        expiresIn: 300,        // OTP valid for 5 minutes
+    }),
     ],
 
     trustedOrigins: ["food-delivery-customer://"],
