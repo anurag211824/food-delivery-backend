@@ -95,31 +95,31 @@ export class AuthController {
     }
 
     @Post("phone-number/send-otp")
-@ApiOperation({ summary: 'Send OTP to phone', description: 'Triggers an SMS to the provided phone number' })
-async sendOTP(@Body() body: { phoneNumber: string }, @Req() req: Request, @Res() res: Response) {
-    const response = await auth.api.sendPhoneNumberOTP({
-        body: { phoneNumber: body.phoneNumber },
-        headers: fromNodeHeaders(req.headers)
-    });
-    res.json(response);
-}
+    @ApiOperation({ summary: 'Send OTP to phone', description: 'Triggers an SMS to the provided phone number' })
+    async sendOTP(@Body() body: { phoneNumber: string }, @Req() req: Request, @Res() res: Response) {
+        const response = await auth.api.sendPhoneNumberOTP({
+            body: { phoneNumber: body.phoneNumber },
+            headers: fromNodeHeaders(req.headers)
+        });
+        res.json(response);
+    }
 
-@Post("phone-number/sign-in")
-@ApiOperation({ summary: 'Verify OTP and Login', description: 'Authenticates a user using phone and OTP' })
-async phoneSignIn(@Body() body: { phoneNumber: string; code: string }, @Req() req: Request, @Res() res: Response) {
-    const response = await auth.api.verifyPhoneNumber({
-        body: { 
-            phoneNumber: body.phoneNumber, 
-            code: body.code 
-        },
-        asResponse: true,
-        headers: fromNodeHeaders(req.headers)
-    });
-    
-    res.set(Object.fromEntries(response.headers.entries()));
-    const data = await response.json();
-    res.json(data);
-}
+    @Post("phone-number/verify")
+    @ApiOperation({ summary: 'Verify OTP and Login', description: 'Authenticates a user using phone and OTP' })
+    async phoneSignIn(@Body() body: { phoneNumber: string; code: string }, @Req() req: Request, @Res() res: Response) {
+        const response = await auth.api.verifyPhoneNumber({
+            body: {
+                phoneNumber: body.phoneNumber,
+                code: body.code
+            },
+            asResponse: true,
+            headers: fromNodeHeaders(req.headers)
+        });
+
+        res.set(Object.fromEntries(response.headers.entries()));
+        const data = await response.json();
+        res.json(data);
+    }
 
     @Get('*')
     @ApiOperation({
