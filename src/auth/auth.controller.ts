@@ -12,10 +12,9 @@ export class AuthController {
     @Post("sign-up/email")
     @ApiOperation({
         summary: 'Sign up with email',
-        description: 'Create a new user account using email and password'
+        description: 'Create a new user account and automatically log in'
     })
-    @ApiResponse({ status: 201, description: 'Account created successfully' })
-    @ApiResponse({ status: 400, description: 'Invalid input or email already exists' })
+    @ApiResponse({ status: 201, description: 'Account created and logged in' })
     async signUp(
         @Body() body: SignUpDto,
         @Req() req: Request,
@@ -23,9 +22,15 @@ export class AuthController {
     ): Promise<void> {
         const response = await auth.api.signUpEmail({
             body: { ...body },
+            asResponse: true, // Required to get session cookies in headers
             headers: fromNodeHeaders(req.headers)
         });
-        res.json(response);
+
+        // Set-Cookie' and other auth headers to the client
+        res.set(Object.fromEntries(response.headers.entries()));
+
+        const data = await response.json();
+        res.json(data);
     }
 
     @Post('sign-in/email')
