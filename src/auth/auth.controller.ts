@@ -1,37 +1,45 @@
 import { Controller, Post, Get, Body, Req, Res } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { auth } from "../lib/auth";
 import { toNodeHandler, fromNodeHeaders } from 'better-auth/node';
 import type { Request, Response } from 'express';
 import { SignUpDto, SignInDto, SocialSignInDto } from './dto/auth.dto';
+import { PrismaService } from 'src/prisma/prisma.service';
 
 @ApiTags('Account & Profile')
 @Controller('/api/auth')
 export class AuthController {
 
-    @Post("sign-up/email")
-    @ApiOperation({
-        summary: 'Sign up with email',
-        description: 'Create a new user account and automatically log in'
-    })
-    @ApiResponse({ status: 201, description: 'Account created and logged in' })
-    async signUp(
-        @Body() body: SignUpDto,
-        @Req() req: Request,
-        @Res() res: Response
-    ): Promise<void> {
-        const response = await auth.api.signUpEmail({
-            body: { ...body },
-            asResponse: true, // Required to get session cookies in headers
-            headers: fromNodeHeaders(req.headers)
+    constructor(private readonly prisma: PrismaService) { }
+
+@Post("sign-up/email")
+async signUp(
+    @Body() body: SignUpDto,
+    @Req() req: Request,
+    @Res() res: Response
+): Promise<void> {
+    let referrerId: string | undefined;
+
+    if (body.invitedByCode) {
+        const referrer = await this.prisma.user.findUnique({
+            where: { referralCode: body.invitedByCode }
         });
-
-        // Set-Cookie' and other auth headers to the client
-        res.set(Object.fromEntries(response.headers.entries()));
-
-        const data = await response.json();
-        res.json(data);
+        referrerId = referrer?.id;
     }
+
+    const response = await auth.api.signUpEmail({
+        body: { 
+            ...body, 
+            referredById: referrerId 
+        },
+        asResponse: true,
+        headers: fromNodeHeaders(req.headers)
+    });
+
+    res.set(Object.fromEntries(response.headers.entries()));
+    const data = await response.json();
+    res.json(data);
+}
 
     @Post('sign-in/email')
     @ApiOperation({

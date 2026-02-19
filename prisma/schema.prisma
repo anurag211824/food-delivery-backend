@@ -49,9 +49,17 @@ model User {
   restaurant    Restaurant? // Relation if user is a Manager
   driverProfile DriverProfile? // Relation if user is a Rider
 
+  //  Referral System Fields
+  referralCode  String    @unique // The code this user shares with others
+  referredById  String?   // The ID of the user who invited them
+  referredBy    User?     @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals     User[]    @relation("UserReferrals")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+
+  @@index([referredById])
   @@map("user")
 }
 

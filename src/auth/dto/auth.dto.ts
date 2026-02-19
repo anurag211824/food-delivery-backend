@@ -44,6 +44,11 @@ export class SignUpDto {
     @IsOptional()
     @IsString()
     language?: string;
+
+    @ApiPropertyOptional({ example: 'PRIYA123', description: 'Referral code from a friend' })
+    @IsOptional()
+    @IsString()
+    invitedByCode?: string;
 }
 
 export class SignInDto {
