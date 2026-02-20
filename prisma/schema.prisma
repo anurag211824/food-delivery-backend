@@ -20,7 +20,7 @@ datasource db {
 model User {
   id            String  @id @default(cuid()) // ⚡ CUID for faster indexing
   name          String
-  email         String  @unique
+  email         String? @unique
   emailVerified Boolean @default(false)
   image         String?
 
@@ -50,14 +50,13 @@ model User {
   driverProfile DriverProfile? // Relation if user is a Rider
 
   //  Referral System Fields
-  referralCode  String    @unique // The code this user shares with others
-  referredById  String?   // The ID of the user who invited them
-  referredBy    User?     @relation("UserReferrals", fields: [referredById], references: [id])
-  referrals     User[]    @relation("UserReferrals")
+  referralCode String  @unique // The code this user shares with others
+  referredById String? // The ID of the user who invited them
+  referredBy   User?   @relation("UserReferrals", fields: [referredById], references: [id])
+  referrals    User[]  @relation("UserReferrals")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
 
   @@index([referredById])
   @@map("user")

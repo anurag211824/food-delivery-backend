@@ -31,17 +31,23 @@ export const auth = betterAuth({
         user: {
             create: {
                 before: async (user) => {
-                    // Automatically generate a code if it's missing (e.g., Phone or Google signups)
-                    if (!user.referralCode) {
-                        const namePart = user.name ? user.name.split(' ')[0].toUpperCase() : 'USER';
-                        const randomPart = Math.floor(1000 + Math.random() * 9000);
-                        return {
-                            data: {
-                                ...user,
-                                referralCode: `${namePart}${randomPart}`,
-                            },
-                        };
-                    }
+                    const namePart = user.name ? user.name.split(' ')[0].toUpperCase() : 'USER';
+                    const randomPart = Math.floor(1000 + Math.random() * 9000);
+
+                    // Strip the fake placeholder email generated for phone-only signups
+                    const isPhonePlaceholder = user.email?.endsWith('@phone.foodapp.local');
+
+                    return {
+                        data: {
+                            ...user,
+                            // Null out the fake email so phone users have no email stored
+                            email: isPhonePlaceholder ? undefined : user.email,
+                            // Generate referral code if missing
+                            referralCode: user.referralCode
+                                ? user.referralCode
+                                : `${namePart}${randomPart}`,
+                        },
+                    };
                 },
             },
         },
@@ -56,8 +62,7 @@ export const auth = betterAuth({
             },
 
             signUpOnVerification: {
-                // better-auth requires an email on the user model; derive a
-                // placeholder so phone-only sign-ups work out of the box.
+                // Required by Better Auth's type — nullified in databaseHooks before DB write
                 getTempEmail: (phone) =>
                     `${phone.replace(/\D/g, "")}@phone.foodapp.local`,
                 getTempName: (phone) => `User ${phone.slice(-4)}`,
@@ -80,12 +85,12 @@ export const auth = betterAuth({
             },
 
             referralCode: {
-                type: "string", 
+                type: "string",
                 required: false // Handled by databaseHooks if missing
             },
 
             referredById: {
-                type: "string", 
+                type: "string",
                 required: false
             }
         }
