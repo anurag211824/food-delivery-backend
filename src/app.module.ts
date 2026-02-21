@@ -9,9 +9,10 @@ import { MenuItemsModule } from './menu-items/menu-items.module';
 import { MenuCategoriesModule } from './menu-categories/menu-categories.module';
 import { AddressesModule } from './addresses/addresses.module';
 import { OrdersModule } from './orders/orders.module';
+import { DeliveryModule } from './delivery/delivery.module';
 
 @Module({
-  imports: [AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule],
+  imports: [AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule, DeliveryModule],
   controllers: [AppController, TestController],
   providers: [AppService],
 })
