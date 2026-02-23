@@ -7,7 +7,7 @@ import { SearchRestaurantsDto } from './dto/search-restaurants.dto';
 
 @Injectable()
 export class RestaurantsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   async create(createRestaurantDto: CreateRestaurantDto, managerId: string): Promise<Restaurant> {
     const existing = await this.prisma.restaurant.findUnique({
@@ -30,7 +30,7 @@ export class RestaurantsService {
   }
 
   // 1. PUBLIC SEARCH LOGIC
-async search(dto: SearchRestaurantsDto) {
+  async search(dto: SearchRestaurantsDto) {
     const { query, type, minRating } = dto;
 
     return this.prisma.restaurant.findMany({
@@ -46,14 +46,14 @@ async search(dto: SearchRestaurantsDto) {
             ]
           } : {},
           // 2. Veg/Non-Veg Filter
-          type ? { 
-            menuCategories: { 
-              some: { items: { some: { type: type as VegType } } } 
-            } 
+          type ? {
+            menuCategories: {
+              some: { items: { some: { type: type as VegType } } }
+            }
           } : {},
           // 3. Min Rating Filter 
-          minRating ? { 
-            rating: { gte: Number(minRating) } 
+          minRating ? {
+            rating: { gte: Number(minRating) }
           } : {},
         ]
       },
@@ -61,7 +61,10 @@ async search(dto: SearchRestaurantsDto) {
         menuCategories: {
           include: {
             items: {
-              where: { isAvailable: true } // Only show items currently in stock 
+              where: {
+                isAvailable: true,
+                ...(type ? { type: type as VegType } : {})
+              }
             }
           }
         }
@@ -70,37 +73,37 @@ async search(dto: SearchRestaurantsDto) {
   }
 
   // 2. LISTINGS & DETAILS
-async findAll() {
-  return await this.prisma.restaurant.findMany({
-    where: { isActive: true },
-    select: {
-      id: true,
-      name: true,
-      image: true,
-      costForTwo: true,
-      cuisineTypes: true,
-    }
-  });
-}
-
-async findOne(id: string) {
-  const restaurant = await this.prisma.restaurant.findUnique({
-    where: { id },
-    include: {
-      menuCategories: { 
-        include: {
-          items: true 
-        }
-      },
-      reviews: true 
-    }
-  });
-
-  if (!restaurant) {
-    throw new NotFoundException(`Restaurant with ID ${id} not found`);
+  async findAll() {
+    return await this.prisma.restaurant.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        image: true,
+        costForTwo: true,
+        cuisineTypes: true,
+      }
+    });
   }
-  return restaurant;
-}
+
+  async findOne(id: string) {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { id },
+      include: {
+        menuCategories: {
+          include: {
+            items: true
+          }
+        },
+        reviews: true
+      }
+    });
+
+    if (!restaurant) {
+      throw new NotFoundException(`Restaurant with ID ${id} not found`);
+    }
+    return restaurant;
+  }
 
   // 3. MANAGEMENT TOOLS
   async update(id: string, dto: UpdateRestaurantDto) {
