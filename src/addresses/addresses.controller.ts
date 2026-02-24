@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Req } fro
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiBody, ApiParam } from '@nestjs/swagger';
 import { AddressesService } from './addresses.service';
 import { CreateAddressDto } from './dto/create-address.dto';
+import { UpdateAddressDto } from './dto/update-address.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthenticatedRequest } from '../auth/auth.types';
 
@@ -69,6 +70,24 @@ export class AddressesController {
   @ApiResponse({ status: 404, description: 'Address not found' })
   async setDefault(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
     return this.addressesService.setDefault(id, req.user.id);
+  }
+
+  @Patch(':id')
+  @ApiOperation({
+    summary: 'Update an address',
+    description: 'Edit any field of a saved address. Only the address owner can update it.'
+  })
+  @ApiParam({ name: 'id', example: 'clxyz456', description: 'Address ID to update' })
+  @ApiBody({ type: UpdateAddressDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Address updated successfully',
+    schema: { example: AddressExample }
+  })
+  @ApiResponse({ status: 403, description: 'Forbidden — this address does not belong to you' })
+  @ApiResponse({ status: 404, description: 'Address not found' })
+  async update(@Param('id') id: string, @Body() dto: UpdateAddressDto, @Req() req: AuthenticatedRequest) {
+    return this.addressesService.update(id, req.user.id, dto);
   }
 
   @Delete(':id')

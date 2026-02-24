@@ -120,7 +120,7 @@ export class RestaurantsService {
   async remove(id: string) {
     return this.prisma.restaurant.update({
       where: { id },
-      data: { isActive: false } // Soft delete as per your safety plan [cite: 407]
+      data: { isActive: false } // Soft delete as per your safety plan 
     });
   }
 }
