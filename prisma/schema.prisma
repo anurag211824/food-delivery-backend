@@ -308,11 +308,12 @@ model SavedPaymentMethod {
 
 // 💰 Wallet System
 model Wallet {
-  id           String              @id @default(cuid())
-  userId       String              @unique
-  user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  balance      Float               @default(0.0)
-  transactions WalletTransaction[]
+  id            String               @id @default(cuid())
+  userId        String               @unique
+  user          User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance       Float                @default(0.0)
+  transactions  WalletTransaction[]
+  topupRequests WalletTopupRequest[]
 }
 
 model WalletTransaction {
@@ -322,6 +323,16 @@ model WalletTransaction {
   amount    Float // +500 (Credit), -200 (Debit)
   type      String // "REFUND", "TOPUP", "ORDER_PAYMENT"
   createdAt DateTime @default(now())
+}
+
+model WalletTopupRequest {
+  id              String        @id @default(cuid())
+  walletId        String
+  wallet          Wallet        @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  amount          Float
+  status          PaymentStatus @default(PENDING) // From PaymentStatus enum
+  razorpayOrderId String?       @unique
+  createdAt       DateTime      @default(now())
 }
 
 // 💸 Refunds
