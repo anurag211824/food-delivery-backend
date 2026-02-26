@@ -17,6 +17,14 @@ import type { AuthenticatedRequest } from 'src/auth/auth.types';
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) { }
 
+
+  @Get(":id")
+  @ApiOperation({summary: "get order data by orderid"})
+  @ApiResponse({status:200, description:"order data"})
+  async getOrder(@Param('id') id:string){
+     return this.ordersService.getOrderById(id);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Place a new order (Customer)' })
   @ApiResponse({ status: 201, description: 'Order created successfully.' })

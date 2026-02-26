@@ -108,7 +108,15 @@ export class OrdersService {
       }
     })
 
+  }
 
+  async getOrderById(orderId:string){
+    const order = this.prisma.order.findUnique({
+      where: {id: orderId}
+    });
+    if (!order) throw new NotFoundException("Order not found");
+
+    return order;
   }
 
 
