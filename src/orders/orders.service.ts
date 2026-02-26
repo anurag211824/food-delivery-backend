@@ -58,9 +58,11 @@ export class OrdersService {
     // Generate a simple 4 digit OTP for delivery verification
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
 
-    // Create Order and handle Wallet payment in a single block
-    return this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.create({
+    // ─── Step 1: Create the order atomically (no wallet call inside) ──────────
+    // Keeping wallet charge OUTSIDE the transaction fixes P2028 timeout errors.
+    // WalletsService.charge() opens its own transaction, nesting it caused 7s+ delays.
+    const order = await this.prisma.$transaction(async (tx) => {
+      return tx.order.create({
         data: {
           customerId: userId,
           restaurantId: dto.restaurantId,
@@ -72,7 +74,7 @@ export class OrdersService {
           platformFee,
           totalAmount,
           paymentMode: dto.paymentMode,
-          isPaid: dto.paymentMode === PaymentMethod.WALLET,
+          isPaid: false, // Will be set true after successful wallet charge below
           items: {
             create: orderItemsData,
           },
@@ -83,16 +85,29 @@ export class OrdersService {
           }
         },
       });
-
-      if (dto.paymentMode === PaymentMethod.WALLET) {
-        // This call must also use the transaction-aware Prisma instance if WalletsService supported it
-        // However, since our WalletsService.charge uses its own transaction, we'll call it here
-        // Note: For perfect consistency, charge() should ideally accept the transaction 'tx'
-        await this.walletsService.charge(userId, totalAmount, `ORDER_PAYMENT:${order.id}`);
-      }
-
-      return order;
     });
+
+    // ─── Step 2: Charge wallet AFTER order is committed ───────────────────────
+    if (dto.paymentMode === PaymentMethod.WALLET) {
+      try {
+        await this.walletsService.charge(userId, totalAmount, `ORDER_PAYMENT:${order.id}`);
+        // Mark order as paid now that charge succeeded
+        await this.prisma.order.update({
+          where: { id: order.id },
+          data: { isPaid: true },
+        });
+        order.isPaid = true;
+      } catch (err) {
+        // Compensate: cancel the order if wallet charge fails
+        await this.prisma.order.update({
+          where: { id: order.id },
+          data: { status: 'CANCELLED', cancellationReason: 'Insufficient wallet balance' },
+        });
+        throw err; // Re-throw so the client gets the correct error
+      }
+    }
+
+    return order;
   }
 
   async updateStatus(orderId: string, status: OrderStatus, managerId: string) {
