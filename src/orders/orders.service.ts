@@ -1,12 +1,15 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { UpdateOrderDto } from './dto/update-order.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, PaymentMethod } from '@prisma/client';
+import { WalletsService } from '../wallets/wallets.service';
 
 @Injectable()
 export class OrdersService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    private walletsService: WalletsService
+  ) { }
 
   async create(userId: string, dto: CreateOrderDto) {
     const restaurant = await this.prisma.restaurant.findUnique({
@@ -33,19 +36,14 @@ export class OrdersService {
     // Perform calculations
     let itemTotal = 0;
 
-    // We explicitly define the return type to satisfy Prisma's create requirements
     const orderItemsData = dto.items.map((item) => {
       const dbItem = dbItems.find((d) => d.id === item.menuItemId);
-
-      // Fix: dbItem is guaranteed to exist because of the length check above
       const price = dbItem!.price;
-
       itemTotal += price * item.quantity;
 
       return {
         quantity: item.quantity,
-        price: price, // This is the 'snapshot' price
-        // Fix: Use 'menuItemId' instead of trying to map the whole 'menuItem' object
+        price: price,
         menuItemId: item.menuItemId,
       };
     });
@@ -55,9 +53,9 @@ export class OrdersService {
     const platformFee = 5;
     const totalAmount = itemTotal + tax + deliveryCharge + platformFee;
 
-    // 4. Create Order and Items in one Transaction
+    // Create Order and handle Wallet payment in a single block
     return this.prisma.$transaction(async (tx) => {
-      return tx.order.create({
+      const order = await tx.order.create({
         data: {
           customerId: userId,
           restaurantId: dto.restaurantId,
@@ -68,8 +66,8 @@ export class OrdersService {
           platformFee,
           totalAmount,
           paymentMode: dto.paymentMode,
+          isPaid: dto.paymentMode === PaymentMethod.WALLET,
           items: {
-            // Fix: Ensure the data structure matches Prisma's expectation
             create: orderItemsData,
           },
         },
@@ -79,11 +77,19 @@ export class OrdersService {
           }
         },
       });
+
+      if (dto.paymentMode === PaymentMethod.WALLET) {
+        // This call must also use the transaction-aware Prisma instance if WalletsService supported it
+        // However, since our WalletsService.charge uses its own transaction, we'll call it here
+        // Note: For perfect consistency, charge() should ideally accept the transaction 'tx'
+        await this.walletsService.charge(userId, totalAmount, `ORDER_PAYMENT:${order.id}`);
+      }
+
+      return order;
     });
   }
 
   async updateStatus(orderId: string, status: OrderStatus, managerId: string) {
-
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -97,8 +103,6 @@ export class OrdersService {
       throw new ForbiddenException("You do not have permission to manage this restaurant")
     }
 
-    // perform the update
-
     return this.prisma.order.update({
       where: { id: orderId },
       data: {
@@ -107,21 +111,23 @@ export class OrdersService {
         deliveredAt: status === 'DELIVERED' ? new Date() : undefined,
       }
     })
-
   }
 
-  async getOrderById(orderId:string){
-    const order = this.prisma.order.findUnique({
-      where: {id: orderId},
-      include : {
-        driver: true
+  async getOrderById(orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        driver: true,
+        items: {
+          include: { menuItem: true }
+        },
+        restaurant: true
       }
     });
     if (!order) throw new NotFoundException("Order not found");
 
     return order;
   }
-
 
   async getCustomerOrders(userId: string) {
     return this.prisma.order.findMany({
@@ -138,27 +144,22 @@ export class OrdersService {
     });
   }
 
-
-  async getRestaurantOrders(managerId: string){
-
+  async getRestaurantOrders(managerId: string) {
     return this.prisma.order.findMany({
       where: {
         restaurant: {
           managerId: managerId,
         }
-      }, 
+      },
       include: {
         customer: {
-          select: { id: true, name : true, email: true},
+          select: { id: true, name: true, email: true },
         },
         items: {
-          include: { menuItem: true},
+          include: { menuItem: true },
         },
       },
       orderBy: { placedAt: 'desc' },
     })
   }
-
-
-
 }

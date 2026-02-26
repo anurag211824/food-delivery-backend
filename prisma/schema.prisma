@@ -406,6 +406,7 @@ enum PaymentMethod {
   UPI
   CARD
   NETBANKING
+  RAZORPAY
   WALLET
   COD
 }
