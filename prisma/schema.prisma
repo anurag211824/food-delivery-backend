@@ -74,6 +74,7 @@ model Session {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([token])
+  @@index([userId])
   @@map("session")
 }
 
@@ -123,6 +124,8 @@ model Address {
   lat         Float // GPS Latitude
   lng         Float // GPS Longitude
   isDefault   Boolean @default(false)
+
+  @@index([userId])
 }
 
 // 🏪 Restaurants
@@ -170,6 +173,8 @@ model MenuCategory {
   items        MenuItem[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
+
+  @@index([restaurantId])
 }
 
 // 🍔 Food Items
@@ -193,6 +198,8 @@ model MenuItem {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([categoryId])
 }
 
 // 🛵 Delivery Partners (Riders)
@@ -263,6 +270,12 @@ model Order {
   payments Payment[]
   refunds  Refund[]
   review   Review?
+
+  @@index([customerId])
+  @@index([restaurantId])
+  @@index([driverId])
+  @@index([status])
+  @@index([placedAt])
 }
 
 // 🧾 Line Items (Pivot)
@@ -276,6 +289,9 @@ model OrderItem {
 
   quantity Int
   price    Float // Snapshot of price at time of order
+
+  @@index([orderId])
+  @@index([menuItemId])
 }
 
 // 💳 Payments
@@ -292,6 +308,8 @@ model Payment {
   gatewayResponse Json? // Full log
 
   createdAt DateTime @default(now())
+
+  @@index([orderId])
 }
 
 // 🏦 Saved Cards/UPI
@@ -304,6 +322,8 @@ model SavedPaymentMethod {
   displayValue String // "**** 4242"
   token        String // Secure token from Gateway
   isDefault    Boolean @default(false)
+
+  @@index([userId])
 }
 
 // 💰 Wallet System
@@ -323,6 +343,8 @@ model WalletTransaction {
   amount    Float // +500 (Credit), -200 (Debit)
   type      String // "REFUND", "TOPUP", "ORDER_PAYMENT"
   createdAt DateTime @default(now())
+
+  @@index([walletId])
 }
 
 model WalletTopupRequest {
@@ -345,6 +367,8 @@ model Refund {
   status    String // "PROCESSED", "PENDING"
   isAuto    Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  @@index([orderId])
 }
 
 // ⭐ Ratings
@@ -364,6 +388,9 @@ model Review {
   comment        String?
 
   createdAt DateTime @default(now())
+
+  @@index([restaurantId])
+  @@index([userId])
 }
 
 // ⚙️ Admin-Controlled App Configuration

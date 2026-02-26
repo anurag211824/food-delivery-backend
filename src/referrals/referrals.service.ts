@@ -39,36 +39,34 @@ export class ReferralsService {
       throw new BadRequestException('The referral program is currently disabled.');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      // 1. Link the users
-      await tx.user.update({
-        where: { id: userId },
-        data: { referredById: referrer.id }
-      });
-
-      // 2. Reward the Inviter (only if > 0)
-      if (policy.referrerReward > 0) {
-        await this.walletsService.addFunds(
-          referrer.id,
-          policy.referrerReward,
-          `REFERRAL_BONUS_FOR_INVITING_${userId}`
-        );
-      }
-
-      // 3. Reward the New User (only if > 0)
-      if (policy.referredReward > 0) {
-        await this.walletsService.addFunds(
-          userId,
-          policy.referredReward,
-          `REFERRAL_BONUS_WELCOME`
-        );
-      }
-
-      return {
-        success: true,
-        message: 'Referral applied successfully. Rewards have been distributed!'
-      };
+    // ─── Phase 1: Link the users atomically (fast, no wallet calls inside) ────
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { referredById: referrer.id }
     });
+
+    // ─── Phase 2: Distribute rewards OUTSIDE the transaction ─────────────────
+    // Each addFunds() call runs its own independent transaction — no nesting.
+    if (policy.referrerReward > 0) {
+      await this.walletsService.addFunds(
+        referrer.id,
+        policy.referrerReward,
+        `REFERRAL_BONUS_FOR_INVITING_${userId}`
+      );
+    }
+
+    if (policy.referredReward > 0) {
+      await this.walletsService.addFunds(
+        userId,
+        policy.referredReward,
+        `REFERRAL_BONUS_WELCOME`
+      );
+    }
+
+    return {
+      success: true,
+      message: 'Referral applied successfully. Rewards have been distributed!'
+    };
   }
 
   /**
