@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
 import { DeliveryService } from './delivery.service';
 import { DeliveryController } from './delivery.controller';
+import { EventsModule } from '../events/events.module';
 
 @Module({
+  imports: [EventsModule],
   controllers: [DeliveryController],
   providers: [DeliveryService],
 })
-export class DeliveryModule {}
+export class DeliveryModule { }

@@ -3,12 +3,14 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { OrderStatus, PaymentMethod } from '@prisma/client';
 import { WalletsService } from '../wallets/wallets.service';
+import { EventsGateway } from '../events/events.gateway';
 
 @Injectable()
 export class OrdersService {
   constructor(
     private prisma: PrismaService,
-    private walletsService: WalletsService
+    private walletsService: WalletsService,
+    private eventsGateway: EventsGateway,
   ) { }
 
   async create(userId: string, dto: CreateOrderDto) {
@@ -53,6 +55,9 @@ export class OrdersService {
     const platformFee = 5;
     const totalAmount = itemTotal + tax + deliveryCharge + platformFee;
 
+    // Generate a simple 4 digit OTP for delivery verification
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+
     // Create Order and handle Wallet payment in a single block
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.order.create({
@@ -60,6 +65,7 @@ export class OrdersService {
           customerId: userId,
           restaurantId: dto.restaurantId,
           status: 'PLACED',
+          otp: otp,
           itemTotal,
           tax,
           deliveryCharge,
@@ -103,14 +109,19 @@ export class OrdersService {
       throw new ForbiddenException("You do not have permission to manage this restaurant")
     }
 
-    return this.prisma.order.update({
+    const updatedOrder = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         status,
         acceptedAt: status === 'ACCEPTED' ? new Date() : undefined,
         deliveredAt: status === 'DELIVERED' ? new Date() : undefined,
       }
-    })
+    });
+
+    // 🚀 Real-time event!
+    this.eventsGateway.emitOrderStatusChange(orderId, status);
+
+    return updatedOrder;
   }
 
   async getOrderById(orderId: string) {

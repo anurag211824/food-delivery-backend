@@ -1,19 +1,23 @@
-import { Injectable, NotFoundException,ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { UpdateDeliveryDto } from './dto/update-delivery.dto';
+// import { UpdateDeliveryDto } from './dto/update-delivery.dto';
 import { DriverStatus } from '@prisma/client';
+import { EventsGateway } from '../events/events.gateway';
 
 @Injectable()
 export class DeliveryService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventsGateway: EventsGateway,
+  ) { }
 
-  async createProfile(userId:string,dto: CreateDeliveryDto) {
+  async createProfile(userId: string, dto: CreateDeliveryDto) {
     const existing = await this.prisma.driverProfile.findUnique({
-      where: {userId},
+      where: { userId },
     });
 
-    if(existing) {
+    if (existing) {
       throw new ConflictException("You already have a driver profile!")
     }
 
@@ -29,34 +33,99 @@ export class DeliveryService {
 
   // change status ( online / offline)
 
-  async toggleStatus(userId:string, status: DriverStatus){
+  async toggleStatus(userId: string, status: DriverStatus) {
 
     const profile = await this.prisma.driverProfile.findUnique({
-      where: {userId},
+      where: { userId },
     });
 
-    if(!profile) {
+    if (!profile) {
       throw new NotFoundException("Driver profile not found. Please setup profile first.")
     }
     return this.prisma.driverProfile.update({
-      where: {id:profile.id},
-      data: {status: status}
+      where: { id: profile.id },
+      data: { status: status }
     })
   }
 
-  findAll() {
-    return `This action returns all delivery`;
+  // Phase 2: Order Assignment and Completion
+
+  async getAvailableOrders(userId: string) {
+    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    if (!profile) throw new NotFoundException('Driver profile not found.');
+    if (profile.status !== 'ONLINE') throw new ConflictException('You must be ONLINE to see orders.');
+
+    return this.prisma.order.findMany({
+      where: {
+        status: 'READY',
+        driverId: null, // Only orders without a driver
+      },
+      include: {
+        restaurant: {
+          select: { name: true, address: true, lat: true, lng: true }
+        },
+        customer: {
+          select: { name: true, phoneNumber: true }
+        }
+      },
+      orderBy: { placedAt: 'asc' }
+    });
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} delivery`;
+  async acceptOrder(userId: string, orderId: string) {
+    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    if (!profile) throw new NotFoundException('Driver profile not found.');
+
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found.');
+    if (order.status !== 'READY' || order.driverId !== null) {
+      throw new ConflictException('Order is no longer available.');
+    }
+
+    // Atomic assignment
+    const updatedOrder = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        driverId: profile.id,
+        status: 'ON_THE_WAY',
+        pickedUpAt: new Date(),
+      }
+    });
+
+    this.eventsGateway.emitOrderStatusChange(orderId, 'ON_THE_WAY');
+
+    return updatedOrder;
   }
 
-  update(id: number, updateDeliveryDto: UpdateDeliveryDto) {
-    return `This action updates a #${id} delivery`;
-  }
+  async completeOrder(userId: string, orderId: string, otp: string) {
+    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    if (!profile) throw new NotFoundException('Driver profile not found.');
 
-  remove(id: number) {
-    return `This action removes a #${id} delivery`;
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found.');
+
+    if (order.driverId !== profile.id) {
+      throw new ForbiddenException('You are not assigned to this order.');
+    }
+
+    if (order.status !== 'ON_THE_WAY') {
+      throw new ConflictException('Order must be ON_THE_WAY to complete it.');
+    }
+
+    if (order.otp !== otp) {
+      throw new BadRequestException('Invalid OTP. Please check with the customer.');
+    }
+
+    const deliveredOrder = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: 'DELIVERED',
+        deliveredAt: new Date(),
+      }
+    });
+
+    this.eventsGateway.emitOrderStatusChange(orderId, 'DELIVERED');
+
+    return deliveredOrder;
   }
 }
