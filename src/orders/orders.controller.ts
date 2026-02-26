@@ -18,11 +18,27 @@ export class OrdersController {
   constructor(private readonly ordersService: OrdersService) { }
 
 
+  @Get('my-history')
+  @ApiOperation({ summary: 'Get current user order history' })
+  async getMyOrders(@Req() req: AuthenticatedRequest) {
+    const user = (req as any).user;
+    return this.ordersService.getCustomerOrders(user.id);
+  }
+
+  @Get('restaurant')
+  @ApiOperation({ summary: "Get Orders for managed restaurant (Manager Only)" })
+  @UseGuards(RolesGuard)
+  @Roles(Role.RESTAURANT_MANAGER)
+  async getRestaurantOrders(@Req() req: AuthenticatedRequest) {
+    const user = req.user;
+    return this.ordersService.getRestaurantOrders(user.id)
+  }
+
   @Get(":id")
-  @ApiOperation({summary: "get order data by orderid"})
-  @ApiResponse({status:200, description:"order data"})
-  async getOrder(@Param('id') id:string){
-     return this.ordersService.getOrderById(id);
+  @ApiOperation({ summary: "get order data by orderid" })
+  @ApiResponse({ status: 200, description: "order data" })
+  async getOrder(@Param('id') id: string) {
+    return this.ordersService.getOrderById(id);
   }
 
   @Post()
@@ -34,12 +50,7 @@ export class OrdersController {
     return this.ordersService.create(user.id, createOrderDto);
   }
 
-  @Get('my-history')
-  @ApiOperation({ summary: 'Get current user order history' })
-  async getMyOrders(@Req() req: AuthenticatedRequest) {
-    const user = (req as any).user;
-    return this.ordersService.getCustomerOrders(user.id);
-  }
+
 
   @Patch(':id/status')
   @ApiOperation({ summary: 'Update order status (Manager/Admin Only)' })
@@ -56,14 +67,7 @@ export class OrdersController {
   }
 
 
-  @Get('restaurant')
-  @ApiOperation({ summary: "Get Orders for managed restaurant (Manager Only)" })
-  @UseGuards(RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER)
-  async getRestaurantOrders(@Req() req: AuthenticatedRequest) {
-    const user = req.user;
-    return this.ordersService.getRestaurantOrders(user.id)
-  }
+
 
 
 
