@@ -148,4 +148,25 @@ export class WalletsService {
             return { transaction, balance: updatedWallet.balance };
         });
     }
+
+    async addFunds(userId: string, amount: number, reason: string) {
+        const wallet = await this.getBalance(userId);
+
+        return this.prisma.$transaction(async (prisma) => {
+            const transaction = await prisma.walletTransaction.create({
+                data: {
+                    walletId: wallet.id,
+                    amount: amount,
+                    type: reason,
+                },
+            });
+
+            const updatedWallet = await prisma.wallet.update({
+                where: { id: wallet.id },
+                data: { balance: { increment: amount } },
+            });
+
+            return { transaction, balance: updatedWallet.balance };
+        });
+    }
 }

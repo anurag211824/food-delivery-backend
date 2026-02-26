@@ -15,9 +15,11 @@ import { WalletsModule } from './wallets/wallets.module';
 import { EventsGateway } from './events/events.gateway';
 import { EventsModule } from './events/events.module';
 import { ReviewsModule } from './reviews/reviews.module';
+import { ReferralsModule } from './referrals/referrals.module';
+import { AppConfigModule } from './app-config/app-config.module';
 
 @Module({
-  imports: [AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule, DeliveryModule, PaymentsModule, WalletsModule, EventsModule, ReviewsModule],
+  imports: [AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule, DeliveryModule, PaymentsModule, WalletsModule, EventsModule, ReviewsModule, ReferralsModule, AppConfigModule],
   controllers: [AppController, TestController],
   providers: [AppService, EventsGateway],
 })

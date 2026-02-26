@@ -10,12 +10,16 @@ import { SignUpDto, SignInDto, SocialSignInDto } from './dto/auth.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { AuthGuard } from './auth.guard';
 import type { AuthenticatedRequest } from './auth.types';
+import { ReferralsService } from '../referrals/referrals.service';
 
 @ApiTags('Account & Profile')
 @Controller('/api/auth')
 export class AuthController {
 
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly referralsService: ReferralsService,
+    ) { }
 
     // ─── SIGN UP ──────────────────────────────────────────────────────────────
     @Post('sign-up/email')
@@ -67,7 +71,20 @@ export class AuthController {
         });
 
         res.set(Object.fromEntries(response.headers.entries()));
-        const data = await response.json();
+        const data = await response.json() as { user?: { id: string } };
+
+        // 💰 Award wallet bonuses if signup was successful and a code was provided
+        if (response.ok && body.invitedByCode && data?.user?.id) {
+            try {
+                await this.referralsService.rewardReferral(
+                    data.user.id,
+                    body.invitedByCode,
+                );
+            } catch {
+                // Reward failure must NEVER block account creation
+            }
+        }
+
         res.json(data);
     }
 
@@ -248,38 +265,25 @@ export class AuthController {
         // Parse the response body FIRST (consuming the stream)
         const data = await response.json() as { status: boolean; token: string; user: Record<string, unknown> };
 
-        // ─── Referral attribution for phone signups ───────────────────────
-        // We parse the response first, THEN run the update and re-fetch the
-        // user so the returned JSON reflects the actual referredById value,
-        // not the stale null that Better Auth built before our update ran.
+        // 💰 Award wallet bonuses if signup was successful and a code was provided
         if (response.ok && body.invitedByCode && data?.user?.id) {
             try {
-                const referrer = await this.prisma.user.findUnique({
-                    where: { referralCode: body.invitedByCode.toUpperCase() },
-                    select: { id: true }
+                await this.referralsService.rewardReferral(
+                    data.user.id as string,
+                    body.invitedByCode,
+                );
+                // Reflect referredById in the response for the client
+                const updatedUser = await this.prisma.user.findUnique({
+                    where: { id: data.user.id as string },
+                    select: { referredById: true }
                 });
-
-                if (referrer) {
-                    await this.prisma.user.updateMany({
-                        where: { phoneNumber: body.phoneNumber, referredById: null },
-                        data: { referredById: referrer.id }
-                    });
-
-                    // Re-fetch the updated user so the response shows the correct referredById
-                    const updatedUser = await this.prisma.user.findUnique({
-                        where: { id: data.user.id as string },
-                        select: { referredById: true }
-                    });
-
-                    if (updatedUser) {
-                        data.user = { ...data.user, referredById: updatedUser.referredById };
-                    }
+                if (updatedUser) {
+                    data.user = { ...data.user, referredById: updatedUser.referredById };
                 }
             } catch {
-                // Referral failure must never block login
+                // Reward failure must NEVER block login
             }
         }
-        // ──────────────────────────────────────────────────────────────────
 
         res.json(data);
     }

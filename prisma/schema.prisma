@@ -366,6 +366,13 @@ model Review {
   createdAt DateTime @default(now())
 }
 
+// ⚙️ Admin-Controlled App Configuration
+model AppConfig {
+  key       String   @id // e.g. "referral_enabled", "referrer_reward"
+  value     String // Stored as string, parsed at runtime
+  updatedAt DateTime @updatedAt
+}
+
 // ==========================================
 // 4. ENUMS (Business Rules)
 // ==========================================
