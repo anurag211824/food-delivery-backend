@@ -112,7 +112,10 @@ export class OrdersService {
 
   async getOrderById(orderId:string){
     const order = this.prisma.order.findUnique({
-      where: {id: orderId}
+      where: {id: orderId},
+      include : {
+        driver: true
+      }
     });
     if (!order) throw new NotFoundException("Order not found");
 
