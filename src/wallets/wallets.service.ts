@@ -18,17 +18,11 @@ export class WalletsService {
     }
 
     async getBalance(userId: string) {
-        let wallet = await this.prisma.wallet.findUnique({
+        return this.prisma.wallet.upsert({
             where: { userId },
+            update: {},  // If it exists, return as-is
+            create: { userId, balance: 0.0 },
         });
-
-        if (!wallet) {
-            wallet = await this.prisma.wallet.create({
-                data: { userId, balance: 0.0 },
-            });
-        }
-
-        return wallet;
     }
 
     async getTransactions(userId: string) {
