@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, InternalServerErrorException } from '@
 import { PrismaService } from '../prisma/prisma.service';
 import { TopupWalletDto } from './dto/topup-wallet.dto';
 import { VerifyTopupDto } from './dto/verify-topup.dto';
-import { PaymentStatus } from '@prisma/client';
+import { PaymentStatus, TransactionDirection } from '@prisma/client';
 import * as crypto from 'crypto';
 import Razorpay from 'razorpay';
 
@@ -111,6 +111,7 @@ export class WalletsService {
                 data: {
                     walletId: topupRequest.walletId,
                     amount: topupRequest.amount,
+                    direction: TransactionDirection.CREDIT,
                     type: 'TOPUP',
                 },
             });
@@ -135,7 +136,8 @@ export class WalletsService {
             const transaction = await prisma.walletTransaction.create({
                 data: {
                     walletId: wallet.id,
-                    amount: -amount,
+                    amount: amount,
+                    direction: TransactionDirection.DEBIT,
                     type: reason, // e.g. 'ORDER_PAYMENT'
                 },
             });
@@ -157,6 +159,7 @@ export class WalletsService {
                 data: {
                     walletId: wallet.id,
                     amount: amount,
+                    direction: TransactionDirection.CREDIT,
                     type: reason,
                 },
             });
