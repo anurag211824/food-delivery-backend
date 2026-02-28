@@ -99,12 +99,20 @@ export class RestaurantsService {
     const effectiveSortBy = sortBy || 'rating';
     const effectiveSortOrder = sortOrder || 'desc';
 
-    // Post-process the results
-    const processedRestaurants = restaurants.map(restaurant => {
-      // Calculate proxy delivery time (distance in km * 5 mins + 15 mins base prep)
+    // Post-process the results and apply a 7km hard radius
+    const processedRestaurants: any[] = [];
+
+    for (const restaurant of restaurants) {
       let calculatedDeliveryTime = 30; // Default 30 mins
+
       if (userLat && userLng) {
         const distanceKm = this.calculateDistance(userLat, userLng, restaurant.lat, restaurant.lng);
+
+        // 🚨 Hard Limit: Skip this restaurant if it is more than 7km away
+        if (distanceKm > 7) {
+          continue;
+        }
+
         calculatedDeliveryTime = Math.round(15 + (distanceKm * 5)); // Base 15 mins + 5 mins per km
       }
 
@@ -112,12 +120,12 @@ export class RestaurantsService {
       const filteredCategories = restaurant.menuCategories
         .filter(category => category.items.length > 0);
 
-      return {
+      processedRestaurants.push({
         ...restaurant,
         deliveryTimeEst: calculatedDeliveryTime,
         menuCategories: filteredCategories
-      };
-    });
+      });
+    }
 
     // In-memory sorting for delivery time (requires calculated distance)
     if (effectiveSortBy === 'deliveryTime') {
