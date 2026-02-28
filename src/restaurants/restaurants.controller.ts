@@ -41,8 +41,8 @@ export class RestaurantsController {
   // ─── PUBLIC: SEARCH ───────────────────────────────────────────────────────
   @Get('search')
   @ApiOperation({
-    summary: 'Search restaurants & dishes',
-    description: 'Search by restaurant name, dish name, or popular items. Filter by food type (VEG/NON_VEG) and minimum rating.'
+    summary: 'Search restaurants & dishes with advanced sorting',
+    description: 'Search by restaurant name, dish name, or popular items. Filter by food type (VEG/NON_VEG) and minimum rating. You can also sort by `rating`, `costForTwo`, or `deliveryTime`. If sorting by deliveryTime, you must provide `userLat` and `userLng`.'
   })
   @ApiQuery({ name: 'query', required: false, example: 'Paneer', description: 'Restaurant or dish name' })
   @ApiQuery({ name: 'type', required: false, enum: ['VEG', 'NON_VEG'], description: 'Filter by food type' })
