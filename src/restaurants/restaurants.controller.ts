@@ -4,6 +4,7 @@ import { RestaurantsService } from './restaurants.service';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { SearchRestaurantsDto } from './dto/search-restaurants.dto';
+import { PaginationDto } from '../common/pagination.dto';
 import { AuthGuard } from 'src/auth/auth.guard';
 import { RolesGuard } from 'src/auth/roles.guard';
 import { Roles } from 'src/auth/roles.decorator';
@@ -67,8 +68,8 @@ export class RestaurantsController {
     description: 'List of restaurants',
     schema: { example: [RestaurantExample] }
   })
-  async findAll() {
-    return this.restaurantsService.findAll();
+  async findAll(@Query() dto: PaginationDto) {
+    return this.restaurantsService.findAll(dto);
   }
 
   // ─── PUBLIC: GET ONE ──────────────────────────────────────────────────────

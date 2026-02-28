@@ -4,6 +4,7 @@ import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Restaurant, VegType } from '@prisma/client';
 import { SearchRestaurantsDto } from './dto/search-restaurants.dto';
+import { PaginationDto } from 'src/common/pagination.dto';
 
 @Injectable()
 export class RestaurantsService {
@@ -48,9 +49,15 @@ export class RestaurantsService {
 
   // 1. PUBLIC SEARCH LOGIC
   async search(dto: SearchRestaurantsDto) {
-    const { query, type, minRating, sortBy, sortOrder, userLat, userLng } = dto;
+    const { query, type, minRating, sortBy, sortOrder, userLat, userLng, page, limit } = dto;
+
+    const pageNumber = page || 1;
+    const limitNumber = limit || 10;
+    const skip = (pageNumber - 1) * limitNumber;
 
     const restaurants = await this.prisma.restaurant.findMany({
+      skip: skip,
+      take: limitNumber,
       where: {
         isActive: true, // Only show active restaurants 
         AND: [
@@ -136,21 +143,75 @@ export class RestaurantsService {
       });
     }
 
-    return processedRestaurants;
+    // --- PAGINATION METADATA ---
+    // Make a count query using the exact same filters to get the total number of matches
+    const totalCount = await this.prisma.restaurant.count({
+      where: {
+        isActive: true,
+        AND: [
+          query ? {
+            OR: [
+              { name: { contains: query, mode: 'insensitive' } },
+              { description: { contains: query, mode: 'insensitive' } },
+              { menuCategories: { some: { items: { some: { name: { contains: query, mode: 'insensitive' } } } } } }
+            ]
+          } : {},
+          type ? {
+            menuCategories: {
+              some: { items: { some: { type: type as VegType } } }
+            }
+          } : {},
+          minRating ? {
+            rating: { gte: Number(minRating) }
+          } : {},
+        ]
+      }
+    });
+
+    return {
+      data: processedRestaurants,
+      meta: {
+        total: totalCount,
+        page: pageNumber,
+        limit: limitNumber,
+        totalPages: Math.ceil(totalCount / limitNumber),
+      }
+    };
   }
 
   // 2. LISTINGS & DETAILS
-  async findAll() {
-    return await this.prisma.restaurant.findMany({
-      where: { isActive: true },
-      select: {
-        id: true,
-        name: true,
-        image: true,
-        costForTwo: true,
-        cuisineTypes: true,
+  async findAll(dto: PaginationDto) {
+    const pageNumber = dto.page || 1;
+    const limitNumber = dto.limit || 10;
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const [data, total] = await Promise.all([
+      this.prisma.restaurant.findMany({
+        skip,
+        take: limitNumber,
+        where: { isActive: true },
+        select: {
+          id: true,
+          name: true,
+          image: true,
+          costForTwo: true,
+          cuisineTypes: true,
+        }
+      }),
+      this.prisma.restaurant.count({
+        where: { isActive: true }
+      })
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page: pageNumber,
+        limit: limitNumber,
+        totalPages: Math.ceil(total / limitNumber),
       }
-    });
+    };
   }
 
   async findOne(id: string) {

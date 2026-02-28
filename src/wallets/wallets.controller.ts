@@ -1,8 +1,9 @@
-import { Controller, Get, Post, Body, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, Req, UseGuards, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { WalletsService } from './wallets.service';
 import { TopupWalletDto } from './dto/topup-wallet.dto';
 import { VerifyTopupDto } from './dto/verify-topup.dto';
+import { PaginationDto } from '../common/pagination.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthenticatedRequest } from '../auth/auth.types';
 
@@ -23,8 +24,8 @@ export class WalletsController {
     @Get('transactions')
     @ApiOperation({ summary: 'Get wallet transaction history' })
     @ApiResponse({ status: 200, description: 'Returns list of wallet transactions' })
-    async getTransactions(@Req() req: AuthenticatedRequest) {
-        return this.walletsService.getTransactions(req.user.id);
+    async getTransactions(@Req() req: AuthenticatedRequest, @Query() dto: PaginationDto) {
+        return this.walletsService.getTransactions(req.user.id, dto);
     }
 
     @Post('topup')

@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, InternalServerErrorException } from '@
 import { PrismaService } from '../prisma/prisma.service';
 import { TopupWalletDto } from './dto/topup-wallet.dto';
 import { VerifyTopupDto } from './dto/verify-topup.dto';
+import { PaginationDto } from '../common/pagination.dto';
 import { PaymentStatus, TransactionDirection } from '@prisma/client';
 import * as crypto from 'crypto';
 import Razorpay from 'razorpay';
@@ -25,13 +26,34 @@ export class WalletsService {
         });
     }
 
-    async getTransactions(userId: string) {
+    async getTransactions(userId: string, dto: PaginationDto) {
         const wallet = await this.getBalance(userId);
 
-        return this.prisma.walletTransaction.findMany({
-            where: { walletId: wallet.id },
-            orderBy: { createdAt: 'desc' },
-        });
+        const pageNumber = dto.page || 1;
+        const limitNumber = dto.limit || 10;
+        const skip = (pageNumber - 1) * limitNumber;
+
+        const [data, total] = await Promise.all([
+            this.prisma.walletTransaction.findMany({
+                where: { walletId: wallet.id },
+                skip,
+                take: limitNumber,
+                orderBy: { createdAt: 'desc' },
+            }),
+            this.prisma.walletTransaction.count({
+                where: { walletId: wallet.id }
+            })
+        ]);
+
+        return {
+            data,
+            meta: {
+                total,
+                page: pageNumber,
+                limit: limitNumber,
+                totalPages: Math.ceil(total / limitNumber),
+            }
+        };
     }
 
     async topup(userId: string, dto: TopupWalletDto) {
