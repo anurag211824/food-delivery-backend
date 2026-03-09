@@ -4,6 +4,8 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { OrderStatus, PaymentMethod } from '@prisma/client';
 import { WalletsService } from '../wallets/wallets.service';
 import { EventsGateway } from '../events/events.gateway';
+import { CouponsService } from '../coupons/coupons.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class OrdersService {
@@ -11,6 +13,8 @@ export class OrdersService {
     private prisma: PrismaService,
     private walletsService: WalletsService,
     private eventsGateway: EventsGateway,
+    private couponsService: CouponsService,
+    private notificationsService: NotificationsService,
   ) { }
 
   async create(userId: string, dto: CreateOrderDto) {
@@ -20,6 +24,11 @@ export class OrdersService {
 
     if (!restaurant) throw new NotFoundException("Restaurant not found");
     if (!restaurant.isOpen) throw new BadRequestException("Restaurant is closed");
+
+    // Fetch the customer's default address for distance calculation
+    const userAddress = await this.prisma.address.findFirst({
+      where: { userId, isDefault: true },
+    });
 
     // Fetch real prices from database
     const dbItems = await this.prisma.menuItem.findMany({
@@ -50,17 +59,36 @@ export class OrdersService {
       };
     });
 
-    const tax = itemTotal * 0.05;
-    const deliveryCharge = 30;
+    // ─── DYNAMIC DELIVERY FEE (Haversine distance) ────────────────────────
+    let deliveryCharge = 30; // fallback flat rate
+    if (userAddress && restaurant.lat && restaurant.lng) {
+      const distanceKm = this.calculateDistance(
+        userAddress.lat, userAddress.lng,
+        restaurant.lat, restaurant.lng,
+      );
+      // Formula: Base ₹15 + ₹7 per km, capped at ₹60
+      deliveryCharge = Math.min(60, Math.round(15 + distanceKm * 7));
+    }
+
+    // ─── COUPON DISCOUNT ──────────────────────────────────────────────────
+    let discount = 0;
+    if (dto.promoCode) {
+      const result = await this.couponsService.validate(dto.promoCode, userId, itemTotal);
+      discount = result.discount;
+    }
+
+    // ─── PLATFORM COMMISSION (20% of item total) ──────────────────────────
+    const commission = Math.round(itemTotal * 0.20 * 100) / 100;
+
+    const tax = Math.round(itemTotal * 0.05 * 100) / 100;
     const platformFee = 5;
-    const totalAmount = itemTotal + tax + deliveryCharge + platformFee;
+    const driverTip = dto.driverTip ?? 0;
+    const totalAmount = Math.round((itemTotal + tax + deliveryCharge + platformFee + driverTip - discount) * 100) / 100;
 
     // Generate a simple 4 digit OTP for delivery verification
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
 
     // ─── Step 1: Create the order atomically (no wallet call inside) ──────────
-    // Keeping wallet charge OUTSIDE the transaction fixes P2028 timeout errors.
-    // WalletsService.charge() opens its own transaction, nesting it caused 7s+ delays.
     const order = await this.prisma.$transaction(async (tx) => {
       return tx.order.create({
         data: {
@@ -72,9 +100,13 @@ export class OrdersService {
           tax,
           deliveryCharge,
           platformFee,
+          driverTip,
+          discount,
+          promoCode: dto.promoCode?.toUpperCase() || null,
+          commission,
           totalAmount,
           paymentMode: dto.paymentMode,
-          isPaid: false, // Will be set true after successful wallet charge below
+          isPaid: false,
           items: {
             create: orderItemsData,
           },
@@ -91,23 +123,52 @@ export class OrdersService {
     if (dto.paymentMode === PaymentMethod.WALLET) {
       try {
         await this.walletsService.charge(userId, totalAmount, `ORDER_PAYMENT:${order.id}`);
-        // Mark order as paid now that charge succeeded
         await this.prisma.order.update({
           where: { id: order.id },
           data: { isPaid: true },
         });
         order.isPaid = true;
       } catch (err) {
-        // Compensate: cancel the order if wallet charge fails
         await this.prisma.order.update({
           where: { id: order.id },
           data: { status: 'CANCELLED', cancellationReason: 'Insufficient wallet balance' },
         });
-        throw err; // Re-throw so the client gets the correct error
+        throw err;
       }
     }
 
+    // ─── Step 3: Record coupon usage ──────────────────────────────────────
+    if (dto.promoCode && discount > 0) {
+      await this.couponsService.recordUsage(dto.promoCode, userId, order.id);
+    }
+
+    // ─── Step 4: Notify restaurant manager ───────────────────────────────
+    this.notificationsService.send(
+      restaurant.managerId,
+      '🔔 New Order!',
+      `A new order of ₹${totalAmount} has been placed.`,
+      'ORDER_UPDATE',
+      { orderId: order.id },
+    );
+
     return order;
+  }
+
+  // ─── HAVERSINE DISTANCE CALCULATION ─────────────────────────────────────
+  private calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+    const R = 6371; // Earth radius in km
+    const dLat = this.toRad(lat2 - lat1);
+    const dLng = this.toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(this.toRad(lat1)) * Math.cos(this.toRad(lat2)) *
+      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  }
+
+  private toRad(deg: number): number {
+    return deg * (Math.PI / 180);
   }
 
   async updateStatus(orderId: string, status: OrderStatus, managerId: string) {

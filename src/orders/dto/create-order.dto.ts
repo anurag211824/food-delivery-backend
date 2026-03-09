@@ -1,4 +1,4 @@
-import { IsArray, IsString, IsNotEmpty, ValidateNested, IsInt, Min, IsEnum } from 'class-validator';
+import { IsArray, IsString, IsNotEmpty, ValidateNested, IsInt, Min, IsEnum, IsOptional } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import { PaymentMethod } from '@prisma/client';
@@ -30,4 +30,13 @@ export class CreateOrderDto {
   @ApiProperty({ enum: PaymentMethod, example: 'COD' })
   @IsEnum(PaymentMethod)
   paymentMode: PaymentMethod;
+
+  @IsOptional()
+  @IsString()
+  promoCode?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  driverTip?: number;
 }

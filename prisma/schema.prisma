@@ -59,8 +59,10 @@ model User {
   restaurantRequest      RestaurantRequest?
   deliveryPartnerRequest DeliveryPartnerRequest?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  couponUsages  CouponUsage[]
+  notifications Notification[]
 
   @@index([referredById])
   @@map("user")
@@ -257,7 +259,10 @@ model Order {
   tax            Float // GST
   deliveryCharge Float
   platformFee    Float
-  driverTip      Float @default(0)
+  driverTip      Float   @default(0)
+  discount       Float   @default(0) // Coupon discount applied
+  promoCode      String? // Applied coupon code
+  commission     Float   @default(0) // Platform cut from restaurant
   totalAmount    Float // Final Amount to Pay
 
   paymentMode PaymentMethod
@@ -396,6 +401,66 @@ model Review {
 
   @@index([restaurantId])
   @@index([userId])
+}
+
+// ==========================================
+// 6. PROMOTIONS & NOTIFICATIONS
+// ==========================================
+
+// 🎟️ Promo/Coupon System
+model Coupon {
+  id   String @id @default(cuid())
+  code String @unique // e.g. "SAVE50", "WELCOME20"
+
+  discountType  String // "PERCENTAGE" or "FLAT"
+  discountValue Float // e.g. 20 (means 20% or ₹20)
+  maxDiscount   Float? // Cap for percentage discounts (e.g. max ₹100 off)
+  minOrder      Float  @default(0) // Minimum order amount to apply
+
+  usageLimit   Int? // Total times this coupon can be used across all users
+  perUserLimit Int  @default(1) // Times a single user can use it
+  timesUsed    Int  @default(0) // Counter
+
+  validFrom DateTime @default(now())
+  validTo   DateTime
+
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  usages CouponUsage[]
+}
+
+model CouponUsage {
+  id       String @id @default(cuid())
+  couponId String
+  coupon   Coupon @relation(fields: [couponId], references: [id])
+  userId   String
+  user     User   @relation(fields: [userId], references: [id])
+  orderId  String
+
+  usedAt DateTime @default(now())
+
+  @@unique([couponId, userId, orderId])
+  @@index([couponId])
+  @@index([userId])
+}
+
+// 🔔 Push Notifications
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  title  String
+  body   String
+  type   String // "ORDER_UPDATE", "PROMO", "SYSTEM"
+  data   Json? // Extra payload (e.g. { orderId: "..." })
+  isRead Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
 }
 
 // ⚙️ Admin-Controlled App Configuration
