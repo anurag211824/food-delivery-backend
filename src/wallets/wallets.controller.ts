@@ -1,10 +1,15 @@
-import { Controller, Get, Post, Body, Req, UseGuards, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Req, UseGuards, Query, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { WalletsService } from './wallets.service';
 import { TopupWalletDto } from './dto/topup-wallet.dto';
 import { VerifyTopupDto } from './dto/verify-topup.dto';
+import { CreateWithdrawalDto } from './dto/create-withdrawal.dto';
+import { ResolveWithdrawalDto } from './dto/resolve-withdrawal.dto';
 import { PaginationDto } from '../common/pagination.dto';
 import { AuthGuard } from '../auth/auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { Role, RequestStatus } from '@prisma/client';
 import type { AuthenticatedRequest } from '../auth/auth.types';
 
 @ApiTags('Financials & Payments')
@@ -40,5 +45,41 @@ export class WalletsController {
     @ApiResponse({ status: 200, description: 'Topup verified and money added to wallet' })
     async verifyTopup(@Req() req: AuthenticatedRequest, @Body() verifyDto: VerifyTopupDto) {
         return this.walletsService.verifyTopup(verifyDto);
+    }
+
+    // ─── WITHDRAWALS ──────────────────────────────────────────────────────
+    @Post('withdrawals')
+    @ApiOperation({ summary: 'Request wallet withdrawal (Payout)' })
+    @ApiResponse({ status: 201, description: 'Withdrawal requested, funds held' })
+    async requestWithdrawal(
+        @Req() req: AuthenticatedRequest,
+        @Body() dto: CreateWithdrawalDto,
+    ) {
+        return this.walletsService.requestWithdrawal(req.user.id, dto);
+    }
+
+    @Get('withdrawals/my')
+    @ApiOperation({ summary: 'Get my withdrawal requests' })
+    async getMyWithdrawals(@Req() req: AuthenticatedRequest) {
+        return this.walletsService.getMyWithdrawals(req.user.id);
+    }
+
+    @Get('withdrawals/all')
+    @UseGuards(RolesGuard)
+    @Roles(Role.ADMIN)
+    @ApiOperation({ summary: '[Admin] View all withdrawal requests' })
+    async getAllWithdrawals(@Query('status') status?: RequestStatus) {
+        return this.walletsService.getAllWithdrawals(status);
+    }
+
+    @Patch('withdrawals/:id/resolve')
+    @UseGuards(RolesGuard)
+    @Roles(Role.ADMIN)
+    @ApiOperation({ summary: '[Admin] Approve or reject a withdrawal' })
+    async resolveWithdrawal(
+        @Param('id') id: string,
+        @Body() dto: ResolveWithdrawalDto,
+    ) {
+        return this.walletsService.resolveWithdrawal(id, dto);
     }
 }

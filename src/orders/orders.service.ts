@@ -1,4 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { OrderStatus, PaymentMethod } from '@prisma/client';
@@ -15,6 +17,7 @@ export class OrdersService {
     private eventsGateway: EventsGateway,
     private couponsService: CouponsService,
     private notificationsService: NotificationsService,
+    @InjectQueue('orders') private orderQueue: Queue,
   ) { }
 
   async create(userId: string, dto: CreateOrderDto) {
@@ -150,6 +153,15 @@ export class OrdersService {
       'ORDER_UPDATE',
       { orderId: order.id },
     );
+
+    // ─── Step 5: Schedule Auto-Cancel for Unpaid Orders ──────────────────
+    if (!order.isPaid && order.paymentMode !== 'COD') {
+      await this.orderQueue.add(
+        'cancel-unpaid-order',
+        { orderId: order.id },
+        { delay: 10 * 60 * 1000 }, // 10 minutes
+      );
+    }
 
     return order;
   }

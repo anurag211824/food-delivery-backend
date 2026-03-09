@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, BadRequestException, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TopupWalletDto } from './dto/topup-wallet.dto';
 import { VerifyTopupDto } from './dto/verify-topup.dto';
@@ -187,5 +187,65 @@ export class WalletsService {
 
             return { transaction, balance: updatedWallet.balance };
         });
+    }
+
+    // ─── WITHDRAWALS (Rider / Manager Payouts) ────────────────────────────
+
+    async requestWithdrawal(userId: string, dto: import('./dto/create-withdrawal.dto').CreateWithdrawalDto) {
+        // 1. Immediately deduct the funds (Lock in)
+        await this.charge(userId, dto.amount, 'WITHDRAWAL_HOLD');
+
+        // 2. Create the withdrawal request
+        return this.prisma.withdrawal.create({
+            data: {
+                userId,
+                amount: dto.amount,
+                bankAccountName: dto.bankAccountName,
+                bankAccountNumber: dto.bankAccountNumber,
+                ifscCode: dto.ifscCode,
+            },
+        });
+    }
+
+    async getMyWithdrawals(userId: string) {
+        return this.prisma.withdrawal.findMany({
+            where: { userId },
+            orderBy: { createdAt: 'desc' },
+        });
+    }
+
+    async getAllWithdrawals(status?: import('@prisma/client').RequestStatus) {
+        return this.prisma.withdrawal.findMany({
+            where: status ? { status } : {},
+            include: { user: { select: { name: true, email: true, role: true } } },
+            orderBy: { createdAt: 'desc' },
+        });
+    }
+
+    async resolveWithdrawal(id: string, dto: import('./dto/resolve-withdrawal.dto').ResolveWithdrawalDto) {
+        const withdrawal = await this.prisma.withdrawal.findUnique({ where: { id } });
+        if (!withdrawal) throw new NotFoundException('Withdrawal request not found.');
+        if (withdrawal.status !== 'PENDING') throw new BadRequestException(`Withdrawal is already ${withdrawal.status}.`);
+
+        // Update withdrawal status
+        const updated = await this.prisma.withdrawal.update({
+            where: { id },
+            data: {
+                status: dto.status,
+                rejectionReason: dto.rejectionReason,
+                processedAt: new Date(),
+            },
+        });
+
+        // If rejected, refund the money back to the user's app wallet
+        if (dto.status === 'REJECTED') {
+            await this.addFunds(
+                withdrawal.userId,
+                withdrawal.amount,
+                `WITHDRAWAL_REJECTED_REFUND:${id}`,
+            );
+        }
+
+        return { message: `Withdrawal marked as ${dto.status}`, withdrawal: updated };
     }
 }
