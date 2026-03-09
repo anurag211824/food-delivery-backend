@@ -188,4 +188,80 @@ export class OrdersService {
       orderBy: { placedAt: 'desc' },
     })
   }
+
+  // ─── CUSTOMER CANCEL ORDER ──────────────────────────────────────────────
+  async cancelOrder(userId: string, orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.customerId !== userId) {
+      throw new ForbiddenException('You can only cancel your own orders.');
+    }
+
+    // Customers can only cancel if PLACED or ACCEPTED (not yet being prepared)
+    if (!['PLACED', 'ACCEPTED'].includes(order.status)) {
+      throw new BadRequestException(
+        `Cannot cancel an order with status "${order.status}". Only PLACED or ACCEPTED orders can be cancelled.`,
+      );
+    }
+
+    return this.processOrderCancellation(order, 'Cancelled by customer');
+  }
+
+  // ─── MANAGER CANCEL ORDER ──────────────────────────────────────────────
+  async cancelOrderByManager(orderId: string, managerId: string, reason: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { restaurant: true },
+    });
+
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.restaurant.managerId !== managerId) {
+      throw new ForbiddenException('You do not have permission to manage this restaurant.');
+    }
+    if (order.status === 'DELIVERED' || order.status === 'CANCELLED') {
+      throw new BadRequestException(`Cannot cancel a ${order.status} order.`);
+    }
+
+    return this.processOrderCancellation(order, reason || 'Cancelled by restaurant');
+  }
+
+  // ─── SHARED CANCELLATION + AUTO-REFUND LOGIC ───────────────────────────
+  private async processOrderCancellation(order: any, reason: string) {
+    // 1. Cancel the order
+    const cancelledOrder = await this.prisma.order.update({
+      where: { id: order.id },
+      data: {
+        status: 'CANCELLED',
+        cancellationReason: reason,
+      },
+    });
+
+    // 2. Auto-refund if paid via wallet
+    if (order.paymentMode === 'WALLET' && order.isPaid) {
+      await this.walletsService.addFunds(
+        order.customerId,
+        order.totalAmount,
+        `REFUND:${order.id}`,
+      );
+
+      // Create a Refund audit record
+      await this.prisma.refund.create({
+        data: {
+          orderId: order.id,
+          amount: order.totalAmount,
+          reason,
+          status: 'PROCESSED',
+          isAuto: true,
+        },
+      });
+    }
+
+    // 3. Emit real-time status update
+    this.eventsGateway.emitOrderStatusChange(order.id, 'CANCELLED');
+
+    return cancelledOrder;
+  }
 }

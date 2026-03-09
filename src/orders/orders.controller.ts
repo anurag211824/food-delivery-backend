@@ -1,7 +1,7 @@
 import {
-  Controller, Get, Post, Body, Patch, Param, Req, UseGuards
+  Controller, Get, Post, Body, Patch, Delete, Param, Req, UseGuards
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiBody } from '@nestjs/swagger';
 import { OrderStatus, Role } from '@prisma/client';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -66,9 +66,41 @@ export class OrdersController {
     return this.ordersService.updateStatus(id, status, user.id);
   }
 
+  // ─── CUSTOMER CANCEL ────────────────────────────────────────────────────
+  @Delete(':id')
+  @ApiOperation({
+    summary: 'Cancel my order (Customer)',
+    description: 'Customers can cancel orders with status PLACED or ACCEPTED. Wallet-paid orders are auto-refunded.',
+  })
+  @ApiParam({ name: 'id', description: 'Order ID' })
+  @ApiResponse({ status: 200, description: 'Order cancelled, wallet refunded if applicable.' })
+  @ApiResponse({ status: 400, description: 'Order cannot be cancelled at this stage.' })
+  async cancelOrder(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    return this.ordersService.cancelOrder(req.user.id, id);
+  }
 
-
-
-
-
+  // ─── MANAGER CANCEL ─────────────────────────────────────────────────────
+  @Patch(':id/cancel')
+  @ApiOperation({
+    summary: 'Cancel an order (Manager)',
+    description: 'Restaurant managers can cancel orders before delivery. Wallet-paid orders are auto-refunded.',
+  })
+  @ApiParam({ name: 'id', description: 'Order ID' })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', example: 'Kitchen closed unexpectedly.' },
+      },
+    },
+  })
+  @UseGuards(RolesGuard)
+  @Roles(Role.RESTAURANT_MANAGER)
+  async cancelOrderByManager(
+    @Param('id') id: string,
+    @Body('reason') reason: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.ordersService.cancelOrderByManager(id, req.user.id, reason);
+  }
 }

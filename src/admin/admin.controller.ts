@@ -158,4 +158,46 @@ export class AdminController {
     async rejectDeliveryRequest(@Param('id') id: string, @Body('reason') reason?: string) {
         return this.adminService.rejectDeliveryRequest(id, reason);
     }
+
+    // ─── PLATFORM STATS ───────────────────────────────────────────────────
+    @Get('stats')
+    @ApiOperation({
+        summary: '[Admin] Platform dashboard stats',
+        description: 'Returns total users, restaurants, orders, revenue, active drivers, and pending requests — all in one call.',
+    })
+    @ApiResponse({
+        status: 200,
+        description: 'Platform stats',
+        schema: {
+            example: {
+                totalUsers: 500, totalRestaurants: 20, totalOrders: 1200,
+                todayOrders: 45, totalRevenue: 350000, activeDrivers: 8,
+                pendingRequests: { restaurant: 3, delivery: 5 },
+            },
+        },
+    })
+    async getPlatformStats() {
+        return this.adminService.getPlatformStats();
+    }
+
+    // ─── ALL ORDERS ───────────────────────────────────────────────────────
+    @Get('orders')
+    @ApiOperation({
+        summary: '[Admin] List all platform orders',
+        description: 'Paginated list of all orders across the platform. Filter by status.',
+    })
+    @ApiQuery({ name: 'status', required: false, description: 'Filter by order status (e.g. PLACED, DELIVERED, CANCELLED)' })
+    @ApiQuery({ name: 'page', required: false, example: 1 })
+    @ApiQuery({ name: 'limit', required: false, example: 20 })
+    async getAllOrders(
+        @Query('status') status?: string,
+        @Query('page') page = '1',
+        @Query('limit') limit = '20',
+    ) {
+        return this.adminService.getAllOrders(
+            status,
+            Math.max(1, parseInt(page, 10)),
+            Math.min(100, Math.max(1, parseInt(limit, 10))),
+        );
+    }
 }

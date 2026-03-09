@@ -227,4 +227,69 @@ export class AdminService {
 
         return { message: 'Delivery partner request rejected.', request: updated };
     }
+
+    // ─── PLATFORM STATS (ADMIN DASHBOARD) ─────────────────────────────────
+    async getPlatformStats() {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
+        const [
+            totalUsers,
+            totalRestaurants,
+            totalOrders,
+            todayOrders,
+            totalRevenue,
+            activeDrivers,
+            pendingRestaurantRequests,
+            pendingDeliveryRequests,
+        ] = await Promise.all([
+            this.prisma.user.count(),
+            this.prisma.restaurant.count(),
+            this.prisma.order.count(),
+            this.prisma.order.count({ where: { placedAt: { gte: todayStart } } }),
+            this.prisma.order.aggregate({
+                _sum: { totalAmount: true },
+                where: { status: 'DELIVERED' },
+            }),
+            this.prisma.driverProfile.count({ where: { status: 'ONLINE' } }),
+            this.prisma.restaurantRequest.count({ where: { status: 'PENDING' } }),
+            this.prisma.deliveryPartnerRequest.count({ where: { status: 'PENDING' } }),
+        ]);
+
+        return {
+            totalUsers,
+            totalRestaurants,
+            totalOrders,
+            todayOrders,
+            totalRevenue: totalRevenue._sum.totalAmount || 0,
+            activeDrivers,
+            pendingRequests: {
+                restaurant: pendingRestaurantRequests,
+                delivery: pendingDeliveryRequests,
+            },
+        };
+    }
+
+    // ─── LIST ALL ORDERS (ADMIN) ──────────────────────────────────────────
+    async getAllOrders(status?: string, page = 1, limit = 20) {
+        const skip = (page - 1) * limit;
+        const where = status ? { status: status as any } : {};
+
+        const [data, total] = await Promise.all([
+            this.prisma.order.findMany({
+                where,
+                skip,
+                take: limit,
+                include: {
+                    customer: { select: { id: true, name: true, email: true } },
+                    restaurant: { select: { id: true, name: true } },
+                    driver: { select: { id: true, userId: true } },
+                },
+                orderBy: { placedAt: 'desc' },
+            }),
+            this.prisma.order.count({ where }),
+        ]);
+
+        return { data, total, page, limit };
+    }
 }

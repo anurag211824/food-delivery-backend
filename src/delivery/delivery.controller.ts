@@ -76,4 +76,26 @@ export class DeliveryController {
   ) {
     return this.deliveryService.completeOrder(req.user.id, orderId, completeDto.otp);
   }
+
+  // ─── MY CURRENT ORDER ──────────────────────────────────────────────────
+  @Get('my-current-order')
+  @ApiOperation({
+    summary: 'Get my active delivery',
+    description: 'Returns the single order currently assigned to this driver (status: ON_THE_WAY). Returns null if no active delivery.',
+  })
+  @ApiResponse({ status: 200, description: 'Active delivery order or null' })
+  async getMyCurrentOrder(@Req() req: AuthenticatedRequest) {
+    return this.deliveryService.getMyCurrentOrder(req.user.id);
+  }
+
+  // ─── MY EARNINGS ───────────────────────────────────────────────────────
+  @Get('my-earnings')
+  @ApiOperation({
+    summary: 'Get my delivery stats',
+    description: 'Returns total deliveries, rating, and rating count.',
+  })
+  @ApiResponse({ status: 200, description: 'Driver stats summary' })
+  async getMyEarnings(@Req() req: AuthenticatedRequest) {
+    return this.deliveryService.getMyEarnings(req.user.id);
+  }
 }

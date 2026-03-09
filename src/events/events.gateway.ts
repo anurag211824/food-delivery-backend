@@ -14,6 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 // Basic driver location payload
 interface LocationPayload {
   orderId: string;
+  driverProfileId?: string;
   lat: number;
   lng: number;
 }
@@ -63,9 +64,15 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const roomName = `order_${payload.orderId}`;
 
     // Broadcast this location purely to the specific room (i.e. to the Customer)
-    // using client.to(roomName) ensures the sender doesn't receive their own broadcast.
-    // For debugging, we'll use server.to so everyone in the room sees it.
     this.server.to(roomName).emit('order_location_update', payload);
+
+    // Persist driver's latest GPS to DB (fire-and-forget for speed)
+    if (payload.driverProfileId) {
+      this.prisma.driverProfile.update({
+        where: { id: payload.driverProfileId },
+        data: { currentLat: payload.lat, currentLng: payload.lng },
+      }).catch((err) => console.error('Failed to persist driver location:', err));
+    }
   }
 
   // 4. Triggered internally by other REST Services (e.g. OrdersService)

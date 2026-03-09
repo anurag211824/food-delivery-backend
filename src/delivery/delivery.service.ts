@@ -1,15 +1,16 @@
 import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-// import { UpdateDeliveryDto } from './dto/update-delivery.dto';
 import { DriverStatus } from '@prisma/client';
 import { EventsGateway } from '../events/events.gateway';
+import { WalletsService } from '../wallets/wallets.service';
 
 @Injectable()
 export class DeliveryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventsGateway: EventsGateway,
+    private readonly walletsService: WalletsService,
   ) { }
 
   async createProfile(userId: string, dto: CreateDeliveryDto) {
@@ -116,6 +117,7 @@ export class DeliveryService {
       throw new BadRequestException('Invalid OTP. Please check with the customer.');
     }
 
+    // ⚡ Atomic: mark delivered + increment delivery count
     const deliveredOrder = await this.prisma.order.update({
       where: { id: orderId },
       data: {
@@ -124,8 +126,66 @@ export class DeliveryService {
       }
     });
 
+    // Increment totalDeliveries counter on driver profile
+    await this.prisma.driverProfile.update({
+      where: { id: profile.id },
+      data: { totalDeliveries: { increment: 1 } },
+    });
+
+    // 💰 Credit driver earnings: deliveryCharge + driverTip → driver's wallet
+    const driverEarnings = order.deliveryCharge + order.driverTip;
+    if (driverEarnings > 0) {
+      await this.walletsService.addFunds(
+        userId,
+        driverEarnings,
+        `DELIVERY_EARNING:${order.id}`,
+      );
+    }
+
     this.eventsGateway.emitOrderStatusChange(orderId, 'DELIVERED');
 
     return deliveredOrder;
+  }
+
+  // ─── GET MY CURRENT ORDER ──────────────────────────────────────────────
+  async getMyCurrentOrder(userId: string) {
+    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    if (!profile) throw new NotFoundException('Driver profile not found.');
+
+    const activeOrder = await this.prisma.order.findFirst({
+      where: {
+        driverId: profile.id,
+        status: 'ON_THE_WAY',
+      },
+      include: {
+        restaurant: {
+          select: { name: true, address: true, lat: true, lng: true, image: true },
+        },
+        customer: {
+          select: { name: true, phoneNumber: true },
+        },
+        items: {
+          include: { menuItem: true },
+        },
+      },
+    });
+
+    if (!activeOrder) {
+      return { message: 'No active delivery at the moment.', order: null };
+    }
+
+    return activeOrder;
+  }
+
+  // ─── GET MY EARNINGS SUMMARY ───────────────────────────────────────────
+  async getMyEarnings(userId: string) {
+    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    if (!profile) throw new NotFoundException('Driver profile not found.');
+
+    return {
+      totalDeliveries: profile.totalDeliveries,
+      rating: profile.rating,
+      ratingCount: profile.ratingCount,
+    };
   }
 }
