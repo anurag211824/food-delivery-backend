@@ -1,0 +1,230 @@
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { RequestStatus, Role } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
+import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+
+@Injectable()
+export class AdminService {
+    constructor(private readonly prisma: PrismaService) { }
+
+    // ─── LIST USERS ───────────────────────────────────────────────────────────
+    async listUsers(role?: Role, page = 1, limit = 20) {
+        const skip = (page - 1) * limit;
+        const where = role ? { role } : {};
+
+        const [data, total] = await Promise.all([
+            this.prisma.user.findMany({
+                where,
+                skip,
+                take: limit,
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    phoneNumber: true,
+                    role: true,
+                    referralCode: true,
+                    createdAt: true,
+                },
+                orderBy: { createdAt: 'desc' },
+            }),
+            this.prisma.user.count({ where }),
+        ]);
+
+        return { data, total, page, limit };
+    }
+
+    // ─── UPDATE USER ROLE ─────────────────────────────────────────────────────
+    async updateUserRole(dto: UpdateUserRoleDto, requestingAdminId: string) {
+        if (dto.userId === requestingAdminId) {
+            throw new ForbiddenException('You cannot change your own role.');
+        }
+
+        const user = await this.prisma.user.findUnique({ where: { id: dto.userId } });
+        if (!user) {
+            throw new NotFoundException(`User with id "${dto.userId}" not found.`);
+        }
+
+        const updated = await this.prisma.user.update({
+            where: { id: dto.userId },
+            data: { role: dto.role },
+            select: { id: true, name: true, email: true, phoneNumber: true, role: true },
+        });
+
+        return { message: `Role successfully updated to ${dto.role}.`, user: updated };
+    }
+
+    // ─── BAN / UNBAN RESTAURANT ───────────────────────────────────────────────
+    async toggleRestaurantActive(restaurantId: string, isActive: boolean) {
+        const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
+        if (!restaurant) throw new NotFoundException(`Restaurant "${restaurantId}" not found.`);
+
+        const updated = await this.prisma.restaurant.update({
+            where: { id: restaurantId },
+            data: { isActive },
+            select: { id: true, name: true, isActive: true, isVerified: true },
+        });
+
+        return { message: `Restaurant "${updated.name}" has been ${isActive ? 'activated' : 'deactivated'}.`, restaurant: updated };
+    }
+
+    // ─── VERIFY RESTAURANT ────────────────────────────────────────────────────
+    async verifyRestaurant(restaurantId: string, isVerified: boolean) {
+        const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
+        if (!restaurant) throw new NotFoundException(`Restaurant "${restaurantId}" not found.`);
+
+        const updated = await this.prisma.restaurant.update({
+            where: { id: restaurantId },
+            data: { isVerified },
+            select: { id: true, name: true, isActive: true, isVerified: true },
+        });
+
+        return { message: `Restaurant "${updated.name}" has been ${isVerified ? 'verified' : 'unverified'}.`, restaurant: updated };
+    }
+
+    // ─── LIST PARTNER REQUESTS ────────────────────────────────────────────────
+    async listRequests(type: 'restaurant' | 'delivery', status?: RequestStatus) {
+        const where = status ? { status } : {};
+
+        if (type === 'restaurant') {
+            return this.prisma.restaurantRequest.findMany({
+                where,
+                include: {
+                    user: { select: { id: true, name: true, email: true, phoneNumber: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+            });
+        }
+
+        return this.prisma.deliveryPartnerRequest.findMany({
+            where,
+            include: {
+                user: { select: { id: true, name: true, email: true, phoneNumber: true } },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+    }
+
+    // ─── APPROVE RESTAURANT REQUEST ───────────────────────────────────────────
+    async approveRestaurantRequest(requestId: string) {
+        const request = await this.prisma.restaurantRequest.findUnique({
+            where: { id: requestId },
+        });
+
+        if (!request) throw new NotFoundException(`Restaurant request "${requestId}" not found.`);
+        if (request.status !== 'PENDING') {
+            throw new BadRequestException(`This request is already ${request.status}.`);
+        }
+
+        // ⚡ Atomic transaction: update request + update user role + create Restaurant
+        const [updatedRequest, restaurant] = await this.prisma.$transaction([
+            // 1. Mark request as approved
+            this.prisma.restaurantRequest.update({
+                where: { id: requestId },
+                data: { status: RequestStatus.APPROVED },
+            }),
+            // 2. Update user role to RESTAURANT_MANAGER
+            this.prisma.user.update({
+                where: { id: request.userId },
+                data: { role: Role.RESTAURANT_MANAGER },
+            }),
+            // 3. Create the actual Restaurant record from the request form data
+            this.prisma.restaurant.create({
+                data: {
+                    managerId: request.userId,
+                    name: request.restaurantName,
+                    description: request.description,
+                    address: request.address,
+                    lat: request.lat,
+                    lng: request.lng,
+                    cuisineTypes: request.cuisineTypes,
+                    costForTwo: request.costForTwo,
+                    fssaiCode: request.fssaiCode,
+                    gstNumber: request.gstNumber,
+                    isVerified: true, // Auto-verified since admin manually approved
+                    isActive: true,
+                },
+            }),
+        ]);
+
+        return {
+            message: 'Restaurant request approved. Restaurant profile created and user promoted to RESTAURANT_MANAGER.',
+            request: updatedRequest,
+            restaurant,
+        };
+    }
+
+    // ─── REJECT RESTAURANT REQUEST ────────────────────────────────────────────
+    async rejectRestaurantRequest(requestId: string, reason?: string) {
+        const request = await this.prisma.restaurantRequest.findUnique({ where: { id: requestId } });
+        if (!request) throw new NotFoundException(`Restaurant request "${requestId}" not found.`);
+        if (request.status !== 'PENDING') {
+            throw new BadRequestException(`This request is already ${request.status}.`);
+        }
+
+        const updated = await this.prisma.restaurantRequest.update({
+            where: { id: requestId },
+            data: { status: RequestStatus.REJECTED, rejectionReason: reason },
+        });
+
+        return { message: 'Restaurant request rejected.', request: updated };
+    }
+
+    // ─── APPROVE DELIVERY PARTNER REQUEST ────────────────────────────────────
+    async approveDeliveryRequest(requestId: string) {
+        const request = await this.prisma.deliveryPartnerRequest.findUnique({
+            where: { id: requestId },
+        });
+
+        if (!request) throw new NotFoundException(`Delivery request "${requestId}" not found.`);
+        if (request.status !== 'PENDING') {
+            throw new BadRequestException(`This request is already ${request.status}.`);
+        }
+
+        // ⚡ Atomic transaction: update request + update user role + create DriverProfile
+        const [updatedRequest, driverProfile] = await this.prisma.$transaction([
+            // 1. Mark request as approved
+            this.prisma.deliveryPartnerRequest.update({
+                where: { id: requestId },
+                data: { status: RequestStatus.APPROVED },
+            }),
+            // 2. Update user role to DELIVERY_PARTNER
+            this.prisma.user.update({
+                where: { id: request.userId },
+                data: { role: Role.DELIVERY_PARTNER },
+            }),
+            // 3. Create the actual DriverProfile from the request form data
+            this.prisma.driverProfile.create({
+                data: {
+                    userId: request.userId,
+                    vehicleType: request.vehicleType,
+                    licenseNumber: request.licenseNumber,
+                    vehiclePlate: request.vehiclePlate,
+                    status: 'OFFLINE',
+                },
+            }),
+        ]);
+
+        return {
+            message: 'Delivery request approved. Driver profile created and user promoted to DELIVERY_PARTNER.',
+            request: updatedRequest,
+            driverProfile,
+        };
+    }
+
+    // ─── REJECT DELIVERY PARTNER REQUEST ─────────────────────────────────────
+    async rejectDeliveryRequest(requestId: string, reason?: string) {
+        const request = await this.prisma.deliveryPartnerRequest.findUnique({ where: { id: requestId } });
+        if (!request) throw new NotFoundException(`Delivery request "${requestId}" not found.`);
+        if (request.status !== 'PENDING') {
+            throw new BadRequestException(`This request is already ${request.status}.`);
+        }
+
+        const updated = await this.prisma.deliveryPartnerRequest.update({
+            where: { id: requestId },
+            data: { status: RequestStatus.REJECTED, rejectionReason: reason },
+        });
+
+        return { message: 'Delivery partner request rejected.', request: updated };
+    }
+}

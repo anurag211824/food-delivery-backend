@@ -1,0 +1,161 @@
+import {
+    Controller, Get, Patch, Body, Query, Param,
+    UseGuards, Req,
+} from '@nestjs/common';
+import {
+    ApiTags, ApiOperation, ApiBearerAuth, ApiResponse,
+    ApiBody, ApiParam, ApiQuery,
+} from '@nestjs/swagger';
+import { RequestStatus, Role } from '@prisma/client';
+import { AdminService } from './admin.service';
+import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+import { AuthGuard } from '../auth/auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import type { AuthenticatedRequest } from '../auth/auth.types';
+
+@ApiTags('Admin')
+@ApiBearerAuth()
+@UseGuards(AuthGuard, RolesGuard)
+@Roles(Role.ADMIN)
+@Controller('api/admin')
+export class AdminController {
+    constructor(private readonly adminService: AdminService) { }
+
+    // ─── LIST USERS ───────────────────────────────────────────────────────────
+    @Get('users')
+    @ApiOperation({ summary: '[Admin] List all users', description: 'Returns a paginated list of all users. Filter by role.' })
+    @ApiQuery({ name: 'role', required: false, enum: Role })
+    @ApiQuery({ name: 'page', required: false, example: 1 })
+    @ApiQuery({ name: 'limit', required: false, example: 20 })
+    async listUsers(
+        @Query('role') role?: Role,
+        @Query('page') page = '1',
+        @Query('limit') limit = '20',
+    ) {
+        return this.adminService.listUsers(
+            role,
+            Math.max(1, parseInt(page, 10)),
+            Math.min(100, Math.max(1, parseInt(limit, 10))),
+        );
+    }
+
+    // ─── UPDATE USER ROLE ─────────────────────────────────────────────────────
+    @Patch('users/role')
+    @ApiOperation({ summary: '[Admin] Manually change a user\'s role', description: 'Directly promote or demote any user. For restaurant/delivery partners, prefer the approve endpoints instead.' })
+    @ApiBody({ type: UpdateUserRoleDto })
+    async updateUserRole(@Body() dto: UpdateUserRoleDto, @Req() req: AuthenticatedRequest) {
+        return this.adminService.updateUserRole(dto, req.user.id);
+    }
+
+    // ─── BAN / VERIFY RESTAURANT ──────────────────────────────────────────────
+    @Patch('restaurants/:id/activate')
+    @ApiOperation({ summary: '[Admin] Activate a restaurant' })
+    @ApiParam({ name: 'id' })
+    async activateRestaurant(@Param('id') id: string) {
+        return this.adminService.toggleRestaurantActive(id, true);
+    }
+
+    @Patch('restaurants/:id/deactivate')
+    @ApiOperation({ summary: '[Admin] Deactivate (ban) a restaurant' })
+    @ApiParam({ name: 'id' })
+    async deactivateRestaurant(@Param('id') id: string) {
+        return this.adminService.toggleRestaurantActive(id, false);
+    }
+
+    @Patch('restaurants/:id/verify')
+    @ApiOperation({ summary: '[Admin] Verify a restaurant' })
+    @ApiParam({ name: 'id' })
+    async verifyRestaurant(@Param('id') id: string) {
+        return this.adminService.verifyRestaurant(id, true);
+    }
+
+    @Patch('restaurants/:id/unverify')
+    @ApiOperation({ summary: '[Admin] Unverify a restaurant' })
+    @ApiParam({ name: 'id' })
+    async unverifyRestaurant(@Param('id') id: string) {
+        return this.adminService.verifyRestaurant(id, false);
+    }
+
+    // ─── LIST PARTNER REQUESTS ────────────────────────────────────────────────
+    @Get('requests')
+    @ApiOperation({
+        summary: '[Admin] List partner applications',
+        description: 'List restaurant or delivery partner applications. Filter by status to see what is pending.',
+    })
+    @ApiQuery({ name: 'type', required: true, enum: ['restaurant', 'delivery'], description: 'Type of request to list' })
+    @ApiQuery({ name: 'status', required: false, enum: RequestStatus, description: 'Filter by status (default: all)' })
+    @ApiResponse({ status: 200, description: 'List of requests with the applicant\'s user details' })
+    async listRequests(
+        @Query('type') type: 'restaurant' | 'delivery',
+        @Query('status') status?: RequestStatus,
+    ) {
+        return this.adminService.listRequests(type, status);
+    }
+
+    // ─── RESTAURANT REQUEST: APPROVE / REJECT ─────────────────────────────────
+    @Patch('requests/restaurant/:id/approve')
+    @ApiOperation({
+        summary: '[Admin] Approve a restaurant application',
+        description: 'Atomically: marks request APPROVED + sets user role to RESTAURANT_MANAGER + creates the Restaurant record.',
+    })
+    @ApiParam({ name: 'id', description: 'RestaurantRequest ID' })
+    @ApiResponse({ status: 200, description: 'Approved — Restaurant and manager role created.' })
+    @ApiResponse({ status: 400, description: 'Request is not in PENDING state' })
+    @ApiResponse({ status: 404, description: 'Request not found' })
+    async approveRestaurantRequest(@Param('id') id: string) {
+        return this.adminService.approveRestaurantRequest(id);
+    }
+
+    @Patch('requests/restaurant/:id/reject')
+    @ApiOperation({
+        summary: '[Admin] Reject a restaurant application',
+        description: 'Marks the request as REJECTED with an optional reason. User stays as CUSTOMER.',
+    })
+    @ApiParam({ name: 'id', description: 'RestaurantRequest ID' })
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: {
+                reason: { type: 'string', example: 'FSSAI license could not be verified.' },
+            },
+        },
+    })
+    @ApiResponse({ status: 200, description: 'Request rejected.' })
+    async rejectRestaurantRequest(@Param('id') id: string, @Body('reason') reason?: string) {
+        return this.adminService.rejectRestaurantRequest(id, reason);
+    }
+
+    // ─── DELIVERY REQUEST: APPROVE / REJECT ──────────────────────────────────
+    @Patch('requests/delivery/:id/approve')
+    @ApiOperation({
+        summary: '[Admin] Approve a delivery partner application',
+        description: 'Atomically: marks request APPROVED + sets user role to DELIVERY_PARTNER + creates the DriverProfile record.',
+    })
+    @ApiParam({ name: 'id', description: 'DeliveryPartnerRequest ID' })
+    @ApiResponse({ status: 200, description: 'Approved — DriverProfile and partner role created.' })
+    @ApiResponse({ status: 400, description: 'Request is not in PENDING state' })
+    @ApiResponse({ status: 404, description: 'Request not found' })
+    async approveDeliveryRequest(@Param('id') id: string) {
+        return this.adminService.approveDeliveryRequest(id);
+    }
+
+    @Patch('requests/delivery/:id/reject')
+    @ApiOperation({
+        summary: '[Admin] Reject a delivery partner application',
+        description: 'Marks the request as REJECTED with an optional reason. User stays as CUSTOMER.',
+    })
+    @ApiParam({ name: 'id', description: 'DeliveryPartnerRequest ID' })
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: {
+                reason: { type: 'string', example: 'Driving license could not be verified.' },
+            },
+        },
+    })
+    @ApiResponse({ status: 200, description: 'Request rejected.' })
+    async rejectDeliveryRequest(@Param('id') id: string, @Body('reason') reason?: string) {
+        return this.adminService.rejectDeliveryRequest(id, reason);
+    }
+}

@@ -17,9 +17,11 @@ import { EventsModule } from './events/events.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { ReferralsModule } from './referrals/referrals.module';
 import { AppConfigModule } from './app-config/app-config.module';
+import { AdminModule } from './admin/admin.module';
+import { PartnerRequestsModule } from './partner-requests/partner-requests.module';
 
 @Module({
-  imports: [AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule, DeliveryModule, PaymentsModule, WalletsModule, EventsModule, ReviewsModule, ReferralsModule, AppConfigModule],
+  imports: [AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule, DeliveryModule, PaymentsModule, WalletsModule, EventsModule, ReviewsModule, ReferralsModule, AppConfigModule, AdminModule, PartnerRequestsModule],
   controllers: [AppController, TestController],
   providers: [AppService, EventsGateway],
 })

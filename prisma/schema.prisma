@@ -55,6 +55,10 @@ model User {
   referredBy   User?   @relation("UserReferrals", fields: [referredById], references: [id])
   referrals    User[]  @relation("UserReferrals")
 
+  // Partner Onboarding Relations
+  restaurantRequest      RestaurantRequest?
+  deliveryPartnerRequest DeliveryPartnerRequest?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -402,6 +406,58 @@ model AppConfig {
 }
 
 // ==========================================
+// 5. PARTNER ONBOARDING REQUESTS
+// ==========================================
+
+// 🏪 Restaurant Partner Application
+model RestaurantRequest {
+  id     String @id @default(cuid())
+  userId String @unique // One application per user
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Form Data (submitted by the applicant)
+  restaurantName String
+  description    String?
+  address        String
+  lat            Float
+  lng            Float
+  cuisineTypes   String[]
+  costForTwo     Int
+  fssaiCode      String
+  gstNumber      String?
+
+  // Admin Review
+  status          RequestStatus @default(PENDING)
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+// 🛵 Delivery Partner Application
+model DeliveryPartnerRequest {
+  id     String @id @default(cuid())
+  userId String @unique // One application per user
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Form Data (submitted by the applicant)
+  vehicleType   String // "Bike", "Scooter"
+  licenseNumber String
+  vehiclePlate  String
+
+  // Admin Review
+  status          RequestStatus @default(PENDING)
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+// ==========================================
 // 4. ENUMS (Business Rules)
 // ==========================================
 
@@ -456,4 +512,10 @@ enum PaymentStatus {
 enum TransactionDirection {
   CREDIT
   DEBIT
+}
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
 }
