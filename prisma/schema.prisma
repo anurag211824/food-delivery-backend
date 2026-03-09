@@ -143,7 +143,9 @@ model Restaurant {
 
   name         String
   description  String?
-  image        String? // Cover Image URL
+  logo         String? // Square logo URL
+  banner       String? // Large banner URL
+  image        String? // Legacy Cover Image URL
   costForTwo   Int // e.g. 500 (approx cost)
   cuisineTypes String[] // ["North Indian", "Chinese"]
 
@@ -222,6 +224,7 @@ model DriverProfile {
   vehicleType   String // "Bike", "Scooter"
   licenseNumber String
   vehiclePlate  String
+  profilePic    String? // Driver face photo
 
   rating          Float @default(5.0)
   ratingCount     Int   @default(0)
@@ -514,6 +517,9 @@ model RestaurantRequest {
   costForTwo     Int
   fssaiCode      String
   gstNumber      String?
+  logoUrl        String?
+  bannerUrl      String?
+  fssaiDocUrl    String? // Image/PDF of FSSAI certificate
 
   // Admin Review
   status          RequestStatus @default(PENDING)
@@ -532,9 +538,13 @@ model DeliveryPartnerRequest {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // Form Data (submitted by the applicant)
-  vehicleType   String // "Bike", "Scooter"
-  licenseNumber String
-  vehiclePlate  String
+  vehicleType     String // "Bike", "Scooter"
+  licenseNumber   String
+  vehiclePlate    String
+  licenseFrontUrl String?
+  licenseBackUrl  String?
+  vehicleRcUrl    String?
+  profilePicUrl   String?
 
   // Admin Review
   status          RequestStatus @default(PENDING)

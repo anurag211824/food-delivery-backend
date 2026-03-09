@@ -43,4 +43,19 @@ export class CreateRestaurantRequestDto {
     @IsOptional()
     @IsString()
     gstNumber?: string;
+
+    @ApiPropertyOptional({ example: 'https://cloudinary.com/mylogo.png' })
+    @IsOptional()
+    @IsString()
+    logoUrl?: string;
+
+    @ApiPropertyOptional({ example: 'https://cloudinary.com/mybanner.png' })
+    @IsOptional()
+    @IsString()
+    bannerUrl?: string;
+
+    @ApiPropertyOptional({ example: 'https://cloudinary.com/fssai_doc.pdf' })
+    @IsOptional()
+    @IsString()
+    fssaiDocUrl?: string;
 }

@@ -139,6 +139,8 @@ export class AdminService {
                     lng: request.lng,
                     cuisineTypes: request.cuisineTypes,
                     costForTwo: request.costForTwo,
+                    logo: request.logoUrl,
+                    banner: request.bannerUrl,
                     fssaiCode: request.fssaiCode,
                     gstNumber: request.gstNumber,
                     isVerified: true, // Auto-verified since admin manually approved
@@ -200,6 +202,7 @@ export class AdminService {
                     vehicleType: request.vehicleType,
                     licenseNumber: request.licenseNumber,
                     vehiclePlate: request.vehiclePlate,
+                    profilePic: request.profilePicUrl,
                     status: 'OFFLINE',
                 },
             }),

@@ -37,6 +37,9 @@ export class PartnerRequestsService {
                 costForTwo: dto.costForTwo,
                 fssaiCode: dto.fssaiCode,
                 gstNumber: dto.gstNumber,
+                logoUrl: dto.logoUrl,
+                bannerUrl: dto.bannerUrl,
+                fssaiDocUrl: dto.fssaiDocUrl,
             },
         });
     }
@@ -59,6 +62,10 @@ export class PartnerRequestsService {
                 vehicleType: dto.vehicleType,
                 licenseNumber: dto.licenseNumber,
                 vehiclePlate: dto.vehiclePlate,
+                licenseFrontUrl: dto.licenseFrontUrl,
+                licenseBackUrl: dto.licenseBackUrl,
+                vehicleRcUrl: dto.vehicleRcUrl,
+                profilePicUrl: dto.profilePicUrl,
             },
         });
     }

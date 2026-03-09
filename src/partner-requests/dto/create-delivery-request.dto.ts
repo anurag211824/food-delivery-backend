@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsIn } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsString, IsIn, IsOptional } from 'class-validator';
 
 export class CreateDeliveryRequestDto {
     @ApiProperty({ example: 'Bike', description: 'Type of vehicle', enum: ['Bike', 'Scooter'] })
@@ -14,4 +14,24 @@ export class CreateDeliveryRequestDto {
     @ApiProperty({ example: 'DL01AB1234', description: 'Vehicle registration plate number' })
     @IsString()
     vehiclePlate!: string;
+
+    @ApiPropertyOptional({ example: 'https://cloudinary.com/front.jpg' })
+    @IsOptional()
+    @IsString()
+    licenseFrontUrl?: string;
+
+    @ApiPropertyOptional({ example: 'https://cloudinary.com/back.jpg' })
+    @IsOptional()
+    @IsString()
+    licenseBackUrl?: string;
+
+    @ApiPropertyOptional({ example: 'https://cloudinary.com/rc.jpg' })
+    @IsOptional()
+    @IsString()
+    vehicleRcUrl?: string;
+
+    @ApiPropertyOptional({ example: 'https://cloudinary.com/profile.jpg' })
+    @IsOptional()
+    @IsString()
+    profilePicUrl?: string;
 }
