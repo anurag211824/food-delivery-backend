@@ -98,4 +98,19 @@ export class DeliveryController {
   async getMyEarnings(@Req() req: AuthenticatedRequest) {
     return this.deliveryService.getMyEarnings(req.user.id);
   }
+
+  // ─── GET ORDER ROUTE (MAP DATA) ────────────────────────────────────────
+  @Get('orders/:id/route')
+  @ApiOperation({
+    summary: 'Get optimized route coordinates',
+    description: 'Fetch GPS coordinates for both the Restaurant (Pickup) and Customer (Dropoff) for map rendering.',
+  })
+  @ApiParam({ name: 'id', description: 'Order ID' })
+  @ApiResponse({ status: 200, description: 'Route GPS coordinates' })
+  async getOrderRoute(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') orderId: string,
+  ) {
+    return this.deliveryService.getOrderRoute(req.user.id, orderId);
+  }
 }

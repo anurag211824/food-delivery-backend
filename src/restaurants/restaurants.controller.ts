@@ -4,6 +4,7 @@ import { RestaurantsService } from './restaurants.service';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { SearchRestaurantsDto } from './dto/search-restaurants.dto';
+import { DashboardQueryDto } from './dto/dashboard-query.dto';
 import { PaginationDto } from '../common/pagination.dto';
 import { AuthGuard } from 'src/auth/auth.guard';
 import { RolesGuard } from 'src/auth/roles.guard';
@@ -70,6 +71,28 @@ export class RestaurantsController {
   })
   async findAll(@Query() dto: PaginationDto) {
     return this.restaurantsService.findAll(dto);
+  }
+
+  // ─── MANAGER: DASHBOARD ───────────────────────────────────────────────────
+  @Get('dashboard')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(Role.RESTAURANT_MANAGER)
+  @ApiOperation({
+    summary: 'Get Restaurant Dashboard Analytics (Manager Only)',
+    description: 'Fetch total orders, revenue, and active orders. By default returns today\'s data, but accepts optional `startDate` and `endDate` query parameters for custom ranges.'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Dashboard metrics',
+  })
+  @ApiResponse({ status: 401, description: 'Not authenticated' })
+  @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER role' })
+  async getDashboard(
+    @Query() query: DashboardQueryDto,
+    @Req() req: AuthenticatedRequest
+  ) {
+    return this.restaurantsService.getDashboardStats(req.user.id, query.startDate, query.endDate);
   }
 
   // ─── PUBLIC: GET ONE ──────────────────────────────────────────────────────

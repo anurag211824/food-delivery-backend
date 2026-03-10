@@ -251,4 +251,67 @@ export class RestaurantsService {
       data: { isActive: false } // Soft delete as per your safety plan 
     });
   }
+
+  // 4. MANAGER DASHBOARD
+  async getDashboardStats(managerId: string, startDate?: Date, endDate?: Date) {
+    // Determine the restaurant belonging to this manager
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { managerId }
+    });
+
+    if (!restaurant) {
+      throw new NotFoundException('You do not have a restaurant associated with your account.');
+    }
+
+    // Default to today if no dates provided
+    let start = startDate;
+    let end = endDate;
+
+    if (!start || !end) {
+      const today = new Date();
+      start = start || new Date(today.setHours(0, 0, 0, 0));
+      end = end || new Date(today.setHours(23, 59, 59, 999));
+    }
+
+    const startFilter = start.toISOString();
+    const endFilter = end.toISOString();
+
+    // Fetch orders within the date range
+    const orders = await this.prisma.order.findMany({
+      where: {
+        restaurantId: restaurant.id,
+        placedAt: {
+          gte: startFilter,
+          lte: endFilter
+        }
+      },
+      select: {
+        status: true,
+        itemTotal: true,
+      }
+    });
+
+    const totalOrders = orders.length;
+    const completedOrders = orders.filter(o => o.status === 'DELIVERED');
+    const cancelledOrders = orders.filter(o => o.status === 'CANCELLED');
+    const activeOrders = orders.filter(o => o.status !== 'DELIVERED' && o.status !== 'CANCELLED');
+
+    // Revenue calculation (summing itemTotal of delivered orders)
+    const revenue = completedOrders.reduce((sum, order) => sum + order.itemTotal, 0);
+
+    return {
+      restaurantName: restaurant.name,
+      period: {
+        start: startFilter,
+        end: endFilter
+      },
+      metrics: {
+        totalOrders,
+        completedOrders: completedOrders.length,
+        cancelledOrders: cancelledOrders.length,
+        activeOrders: activeOrders.length,
+        revenue
+      }
+    };
+  }
 }
