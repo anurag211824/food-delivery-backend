@@ -120,7 +120,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER role' })
   @ApiResponse({ status: 404, description: 'Menu item not found' })
   update(@Param('id') id: string, @Body() updateMenuItemDto: UpdateMenuItemDto) {
-    return this.menuItemsService.update(+id, updateMenuItemDto);
+    return this.menuItemsService.update(id, updateMenuItemDto);
   }
 
   // ─── MANAGER: DELETE ──────────────────────────────────────────────────────
@@ -142,6 +142,6 @@ export class MenuItemsController {
   @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER role' })
   @ApiResponse({ status: 404, description: 'Menu item not found' })
   remove(@Param('id') id: string) {
-    return this.menuItemsService.remove(+id);
+    return this.menuItemsService.remove(id);
   }
 }

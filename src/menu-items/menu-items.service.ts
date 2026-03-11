@@ -66,11 +66,32 @@ export class MenuItemsService {
     return item
   }
 
-  update(id: number, updateMenuItemDto: UpdateMenuItemDto) {
-    return `This action updates a #${id} menuItem`;
+  async update(id: string, updateMenuItemDto: UpdateMenuItemDto) {
+    const item = await this.prisma.menuItem.findUnique({
+      where: {id}
+    })
+
+    if (!item) {
+      throw new NotFoundException("Menu item not found");
+    }
+
+    return this.prisma.menuItem.update({
+      where: { id },
+      data: updateMenuItemDto,
+    });
   }
 
-  remove(id: number) {
-    return `This action removes a #${id} menuItem`;
+  async remove(id: string) {
+    const item = await this.prisma.menuItem.findUnique({
+      where: {id}
+    })
+
+    if (!item) {
+      throw new NotFoundException("Menu item not found");
+    }
+
+    return this.prisma.menuItem.delete({
+      where: { id }
+    });
   }
 }
