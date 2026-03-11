@@ -95,6 +95,26 @@ export class RestaurantsController {
     return this.restaurantsService.getDashboardStats(req.user.id, query.startDate, query.endDate);
   }
 
+  // ─── MANAGER: GET MY RESTAURANT ───────────────────────────────────────────
+  @Get('me')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(Role.RESTAURANT_MANAGER)
+  @ApiOperation({
+    summary: 'Get my restaurant details',
+    description: 'Returns the full detail page for the restaurant belonging to the currently logged in manager.'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Restaurant detail with full menu',
+  })
+  @ApiResponse({ status: 401, description: 'Not authenticated' })
+  @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER role' })
+  @ApiResponse({ status: 404, description: 'You do not possess a registered restaurant profile.' })
+  async findMyRestaurant(@Req() req: AuthenticatedRequest) {
+    return this.restaurantsService.findMyRestaurant(req.user.id);
+  }
+
   // ─── PUBLIC: GET ONE ──────────────────────────────────────────────────────
   @Get(':id')
   @ApiOperation({

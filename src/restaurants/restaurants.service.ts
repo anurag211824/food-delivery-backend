@@ -180,6 +180,25 @@ export class RestaurantsService {
   }
 
   // 2. LISTINGS & DETAILS
+  async findMyRestaurant(managerId: string) {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { managerId },
+      include: {
+        menuCategories: {
+          include: {
+            items: true
+          }
+        },
+        reviews: true
+      }
+    });
+
+    if (!restaurant) {
+      throw new NotFoundException('You do not possess a registered restaurant profile.');
+    }
+    return restaurant;
+  }
+
   async findAll(dto: PaginationDto) {
     const pageNumber = dto.page || 1;
     const limitNumber = dto.limit || 10;
