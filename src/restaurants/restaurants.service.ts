@@ -47,7 +47,7 @@ export class RestaurantsService {
     return deg * (Math.PI / 180);
   }
 
-  // 1. PUBLIC SEARCH LOGIC
+  // 1. PUBLIC SEARCH LOGIC (Grouped by Dishes)
   async search(dto: SearchRestaurantsDto) {
     const { query, type, minRating, sortBy, sortOrder, userLat, userLng, page, limit } = dto;
 
@@ -55,126 +55,146 @@ export class RestaurantsService {
     const limitNumber = limit || 10;
     const skip = (pageNumber - 1) * limitNumber;
 
-    const restaurants = await this.prisma.restaurant.findMany({
-      skip: skip,
-      take: limitNumber,
+    // 1. Fetch matching menu items with their category and restaurant
+    const items = await this.prisma.menuItem.findMany({
       where: {
-        isActive: true, // Only show active restaurants 
+        isAvailable: true,
+        category: {
+          restaurant: {
+            isActive: true,
+            ...(minRating ? { rating: { gte: Number(minRating) } } : {}),
+          },
+        },
         AND: [
-          // 1. Keyword Search: Name, Description, or Dish Name 
           query ? {
             OR: [
               { name: { contains: query, mode: 'insensitive' } },
               { description: { contains: query, mode: 'insensitive' } },
-              { menuCategories: { some: { items: { some: { name: { contains: query, mode: 'insensitive' } } } } } }
+              { category: { name: { contains: query, mode: 'insensitive' } } },
+              { category: { restaurant: { name: { contains: query, mode: 'insensitive' } } } },
             ]
           } : {},
-          // 2. Veg/Non-Veg Filter
-          type ? {
-            menuCategories: {
-              some: { items: { some: { type: type as VegType } } }
-            }
-          } : {},
-          // 3. Min Rating Filter 
-          minRating ? {
-            rating: { gte: Number(minRating) }
-          } : {},
+          type ? { type: type as VegType } : {},
         ]
       },
-      // 4. Prisma-level Sorting (for DB columns)
-      orderBy: sortBy && ['rating', 'costForTwo'].includes(sortBy)
-        ? { [sortBy]: sortOrder || 'desc' }
-        : undefined,
-
       include: {
-        menuCategories: {
+        category: {
           include: {
-            items: {
-              where: {
-                isAvailable: true,
-                ...(type ? { type: type as VegType } : {}),
-                // Filter items to match the query if provided
-                ...(query ? { name: { contains: query, mode: 'insensitive' } } : {})
-              }
-            }
+            restaurant: true,
           }
         }
       }
     });
 
-    // Determine default sort if not explicitly requested
-    const effectiveSortBy = sortBy || 'rating';
-    const effectiveSortOrder = sortOrder || 'desc';
-
-    // Post-process the results and apply a 7km hard radius
-    const processedRestaurants: any[] = [];
-
-    for (const restaurant of restaurants) {
-      let calculatedDeliveryTime = 30; // Default 30 mins
-
-      if (userLat && userLng) {
-        const distanceKm = this.calculateDistance(userLat, userLng, restaurant.lat, restaurant.lng);
-
-        // 🚨 Hard Limit: Skip this restaurant if it is more than 7km away
-        if (distanceKm > 7) {
-          continue;
-        }
-
-        calculatedDeliveryTime = Math.round(15 + (distanceKm * 5)); // Base 15 mins + 5 mins per km
-      }
-
-      // Filter out empty categories (where no items matched the search)
-      const filteredCategories = restaurant.menuCategories
-        .filter(category => category.items.length > 0);
-
-      processedRestaurants.push({
-        ...restaurant,
-        deliveryTimeEst: calculatedDeliveryTime,
-        menuCategories: filteredCategories
+    // 2. Filter by distance if user coordinates are provided (7km radius)
+    let filteredItems = items;
+    if (userLat && userLng) {
+      filteredItems = items.filter(item => {
+        const distance = this.calculateDistance(userLat, userLng, item.category.restaurant.lat, item.category.restaurant.lng);
+        return distance <= 7;
       });
     }
 
-    // In-memory sorting for delivery time (requires calculated distance)
-    if (effectiveSortBy === 'deliveryTime') {
-      processedRestaurants.sort((a, b) => {
-        const valA = a.deliveryTimeEst;
-        const valB = b.deliveryTimeEst;
+    // 3. Group by unique dish name (case-insensitive)
+    const dishGroups = new Map<string, any[]>();
+    for (const item of filteredItems) {
+      const normalizedName = item.name.trim(); // We use raw name for grouping but case-insensitive map keys
+      const key = normalizedName.toLowerCase();
+      let group = dishGroups.get(key);
+      if (!group) {
+        group = [];
+        dishGroups.set(key, group);
+      }
+      group.push(item);
+    }
+
+    // 4. Format and Aggregate Results
+    const allDishes = Array.from(dishGroups.values()).map(group => {
+      // Use the first item as a representative for dishDetails
+      const repItem = group[0];
+      if (!repItem) return null;
+      const restaurants = group.map(item => {
+        const restaurant = item.category.restaurant;
+        let deliveryTime = "30-35 mins"; // Placeholder default
+        if (userLat && userLng) {
+          const dist = this.calculateDistance(userLat, userLng, restaurant.lat, restaurant.lng);
+          deliveryTime = `${Math.round(15 + (dist * 5))}-${Math.round(20 + (dist * 5))} mins`;
+        }
+
+        return {
+          restaurantId: restaurant.id,
+          name: restaurant.name,
+          logo: restaurant.logo,
+          rating: restaurant.rating,
+          ratingCount: restaurant.ratingCount,
+          costForTwo: restaurant.costForTwo,
+          menuItemId: item.id,
+          price: item.price,
+          isBestseller: item.isBestseller,
+          estimatedDelivery: deliveryTime
+        };
+      });
+
+      const avgPrice = group.reduce((sum, item) => sum + item.price, 0) / group.length;
+      const popularChoice = group.some(item => item.isBestseller);
+
+      return {
+        dishId: `dish_${repItem.name.toLowerCase().replace(/\s+/g, '_')}`,
+        dishName: repItem.name,
+        categoryName: repItem.category.name,
+        dishDetails: {
+          description: repItem.description,
+          image: repItem.image,
+          type: repItem.type,
+          spiceLevel: repItem.spiceLevel,
+          prepTime: repItem.prepTime,
+          isAvailable: repItem.isAvailable,
+          avgPrice: parseFloat(avgPrice.toFixed(2)),
+          popularChoice: popularChoice
+        },
+        restaurants: restaurants
+      };
+    }).filter((dish): dish is NonNullable<typeof dish> => dish !== null);
+
+    // 5. Sorting for Dishes
+    const effectiveSortBy = sortBy || 'rating';
+    const effectiveSortOrder = sortOrder || 'desc';
+
+    if (effectiveSortBy === 'rating') {
+      allDishes.sort((a, b) => {
+        const ratingA = a.restaurants.reduce((sum, r) => sum + r.rating, 0) / a.restaurants.length;
+        const ratingB = b.restaurants.reduce((sum, r) => sum + r.rating, 0) / b.restaurants.length;
+        return effectiveSortOrder === 'asc' ? ratingA - ratingB : ratingB - ratingA;
+      });
+    } else if (effectiveSortBy === 'costForTwo' || effectiveSortBy === 'deliveryTime') {
+      // For these, we might want to sort by the minimum value in the restaurant list
+      allDishes.sort((a, b) => {
+        let valA, valB;
+        if (effectiveSortBy === 'costForTwo') {
+          valA = Math.min(...a.restaurants.map(r => r.costForTwo));
+          valB = Math.min(...b.restaurants.map(r => r.costForTwo));
+        } else {
+          // Parse delivery time for sorting
+          valA = parseInt(a.restaurants[0].estimatedDelivery);
+          valB = parseInt(b.restaurants[0].estimatedDelivery);
+        }
         return effectiveSortOrder === 'asc' ? valA - valB : valB - valA;
       });
     }
 
-    // --- PAGINATION METADATA ---
-    // Make a count query using the exact same filters to get the total number of matches
-    const totalCount = await this.prisma.restaurant.count({
-      where: {
-        isActive: true,
-        AND: [
-          query ? {
-            OR: [
-              { name: { contains: query, mode: 'insensitive' } },
-              { description: { contains: query, mode: 'insensitive' } },
-              { menuCategories: { some: { items: { some: { name: { contains: query, mode: 'insensitive' } } } } } }
-            ]
-          } : {},
-          type ? {
-            menuCategories: {
-              some: { items: { some: { type: type as VegType } } }
-            }
-          } : {},
-          minRating ? {
-            rating: { gte: Number(minRating) }
-          } : {},
-        ]
-      }
-    });
+    // 6. Pagination
+    const totalUniqueDishes = allDishes.length;
+    const paginatedDishes = allDishes.slice(skip, skip + limitNumber);
 
     return {
-      data: processedRestaurants,
+      searchTerm: query || "",
+      totalUniqueDishes,
+      results: paginatedDishes,
       meta: {
-        total: totalCount,
+        total: totalUniqueDishes,
         page: pageNumber,
         limit: limitNumber,
-        totalPages: Math.ceil(totalCount / limitNumber),
+        totalPages: Math.ceil(totalUniqueDishes / limitNumber),
       }
     };
   }

@@ -51,8 +51,44 @@ export class RestaurantsController {
   @ApiQuery({ name: 'minRating', required: false, example: 4.0, description: 'Minimum rating (0–5)' })
   @ApiResponse({
     status: 200,
-    description: 'Matching restaurants',
-    schema: { example: [RestaurantExample] }
+    description: 'Matching dishes grouped by name',
+    schema: {
+      example: {
+        searchTerm: 'Chicken',
+        totalUniqueDishes: 2,
+        results: [
+          {
+            dishId: 'dish_butter_chicken',
+            dishName: 'Butter Chicken',
+            categoryName: 'North Indian',
+            dishDetails: {
+              description: 'Creamy tomato sauce with tandoori chicken',
+              image: 'https://example.com/butter_chicken.jpg',
+              type: 'NON_VEG',
+              spiceLevel: 'Medium',
+              prepTime: 25,
+              isAvailable: true,
+              avgPrice: 340.0,
+              popularChoice: true
+            },
+            restaurants: [
+              {
+                restaurantId: 'res_123',
+                name: 'Flavors of India',
+                logo: 'https://example.com/logo.jpg',
+                rating: 4.5,
+                ratingCount: 112,
+                costForTwo: 1200,
+                menuItemId: 'mi_0123',
+                price: 350.0,
+                isBestseller: true,
+                estimatedDelivery: '35-40 mins'
+              }
+            ]
+          }
+        ]
+      }
+    }
   })
   async search(@Query() dto: SearchRestaurantsDto) {
     return this.restaurantsService.search(dto);
