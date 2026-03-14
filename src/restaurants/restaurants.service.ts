@@ -233,8 +233,11 @@ export class RestaurantsService {
           id: true,
           name: true,
           image: true,
+          type: true,
           costForTwo: true,
           cuisineTypes: true,
+          rating: true,
+          ratingCount: true,
         }
       }),
       this.prisma.restaurant.count({
