@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { OrderStatus, PaymentMethod } from '@prisma/client';
+import { OrderStatus, PaymentMethod, Role, User } from '@prisma/client';
 import { WalletsService } from '../wallets/wallets.service';
 import { EventsGateway } from '../events/events.gateway';
 import { CouponsService } from '../coupons/coupons.service';
@@ -183,7 +183,7 @@ export class OrdersService {
     return deg * (Math.PI / 180);
   }
 
-  async updateStatus(orderId: string, status: OrderStatus, managerId: string) {
+  async updateStatus(orderId: string, status: OrderStatus, actor: Pick<User, 'id' | 'role'>) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -193,8 +193,24 @@ export class OrdersService {
 
     if (!order) throw new NotFoundException("Order not found");
 
-    if (order.restaurant.managerId !== managerId) {
+    if (actor.role !== Role.ADMIN && order.restaurant.managerId !== actor.id) {
       throw new ForbiddenException("You do not have permission to manage this restaurant")
+    }
+
+    const allowedTransitions: Partial<Record<OrderStatus, OrderStatus[]>> = {
+      PLACED: ['ACCEPTED', 'CANCELLED', 'REFUSED'],
+      ACCEPTED: ['PREPARING', 'CANCELLED', 'REFUSED'],
+      PREPARING: ['READY', 'CANCELLED'],
+      READY: ['ON_THE_WAY', 'PICKED_UP', 'CANCELLED'],
+      PICKED_UP: ['ON_THE_WAY', 'DELIVERED'],
+      ON_THE_WAY: ['DELIVERED'],
+    };
+
+    const nextAllowedStatuses = allowedTransitions[order.status] ?? [];
+    if (!nextAllowedStatuses.includes(status)) {
+      throw new BadRequestException(
+        `Cannot change order status from "${order.status}" to "${status}".`,
+      );
     }
 
     const updatedOrder = await this.prisma.order.update({
@@ -202,6 +218,7 @@ export class OrdersService {
       data: {
         status,
         acceptedAt: status === 'ACCEPTED' ? new Date() : undefined,
+        pickedUpAt: status === 'PICKED_UP' ? new Date() : undefined,
         deliveredAt: status === 'DELIVERED' ? new Date() : undefined,
       }
     });

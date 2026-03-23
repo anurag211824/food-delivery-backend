@@ -5,6 +5,7 @@ import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiBody } 
 import { OrderStatus, Role } from '@prisma/client';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -55,15 +56,15 @@ export class OrdersController {
   @Patch(':id/status')
   @ApiOperation({ summary: 'Update order status (Manager/Admin Only)' })
   @ApiParam({ name: 'id', description: 'Order CUID' })
+  @ApiBody({ type: UpdateOrderStatusDto })
   @UseGuards(RolesGuard)
   @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   async updateStatus(
     @Param('id') id: string,
-    @Body('status') status: OrderStatus,
+    @Body() dto: UpdateOrderStatusDto,
     @Req() req: AuthenticatedRequest
   ) {
-    const user = (req as any).user;
-    return this.ordersService.updateStatus(id, status, user.id);
+    return this.ordersService.updateStatus(id, dto.status, req.user);
   }
 
   // ─── CUSTOMER CANCEL ────────────────────────────────────────────────────
