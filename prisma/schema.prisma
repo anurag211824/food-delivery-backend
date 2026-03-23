@@ -177,6 +177,7 @@ model MenuCategory {
   id           String     @id @default(cuid())
   name         String // "Starters", "Main Course"
   restaurantId String
+  image        String?
   restaurant   Restaurant @relation(fields: [restaurantId], references: [id], onDelete: Cascade)
   type         VegType?
   items        MenuItem[]
