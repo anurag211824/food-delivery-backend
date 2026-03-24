@@ -20,6 +20,8 @@ export class MenuCategoriesService {
     return this.prisma.menuCategory.create({
       data: {
         name: dto.name,
+        image: dto.image,
+        type: dto.type,
         restaurantId: restaurant.id
       }
     });
