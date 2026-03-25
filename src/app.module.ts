@@ -4,6 +4,8 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 import { RestaurantsModule } from './restaurants/restaurants.module';
 import { MenuItemsModule } from './menu-items/menu-items.module';
@@ -28,6 +30,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -56,7 +59,14 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
     }),
     AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule, DeliveryModule, PaymentsModule, WalletsModule, EventsModule, ReviewsModule, ReferralsModule, AppConfigModule, AdminModule, PartnerRequestsModule, CouponsModule, NotificationsModule],
   controllers: [AppController],
-  providers: [AppService, EventsGateway],
+  providers: [
+    AppService, 
+    EventsGateway,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    }
+  ],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {

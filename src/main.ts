@@ -1,4 +1,5 @@
 import 'reflect-metadata';
+import helmet from 'helmet';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
@@ -41,6 +42,7 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document);
 
   // 4. Middleware & Startup
+  app.use(helmet());
   const port = process.env.PORT ?? 4000;
   await app.listen(port);
 
