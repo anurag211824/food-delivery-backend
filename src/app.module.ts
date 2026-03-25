@@ -4,7 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
-import { TestController } from './test/test.controller';
+
 import { RestaurantsModule } from './restaurants/restaurants.module';
 import { MenuItemsModule } from './menu-items/menu-items.module';
 import { MenuCategoriesModule } from './menu-categories/menu-categories.module';
@@ -55,7 +55,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       },
     }),
     AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule, DeliveryModule, PaymentsModule, WalletsModule, EventsModule, ReviewsModule, ReferralsModule, AppConfigModule, AdminModule, PartnerRequestsModule, CouponsModule, NotificationsModule],
-  controllers: [AppController, TestController],
+  controllers: [AppController],
   providers: [AppService, EventsGateway],
 })
 export class AppModule implements NestModule {
