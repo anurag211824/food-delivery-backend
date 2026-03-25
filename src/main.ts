@@ -3,10 +3,9 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-import morgan from 'morgan';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule,{logger: ['error', 'warn','log','debug']});
 
   // 1. CORS Configuration
   app.enableCors({
@@ -42,8 +41,6 @@ async function bootstrap() {
   SwaggerModule.setup('api/docs', app, document);
 
   // 4. Middleware & Startup
-  app.use(morgan('dev'));
-
   const port = process.env.PORT ?? 4000;
   await app.listen(port);
 
