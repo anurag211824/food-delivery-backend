@@ -10,6 +10,8 @@ import {
 import { Server, Socket } from 'socket.io';
 import { UseFilters } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { auth } from '../lib/auth';
+import { fromNodeHeaders } from 'better-auth/node';
 
 // Basic driver location payload
 interface LocationPayload {
@@ -31,11 +33,33 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(private prisma: PrismaService) { }
 
   // 1. Connection Handling
-  handleConnection(client: Socket) {
-    console.log(`Client connected: ${client.id}`);
+  async handleConnection(client: Socket) {
+    try {
+      // 1. Extract headers from the incoming Upgrade request
+      const headers = fromNodeHeaders(client.handshake.headers as any);
+      
+      // 2. Allow fallback to `auth.token` payload (for React Native / mobile apps)
+      if (client.handshake.auth?.token) {
+        headers.set('authorization', `Bearer ${client.handshake.auth.token}`);
+      }
 
-    // In a real app, you'd extract the JWT from client.handshake.auth.token 
-    // and disconnect them if invalid. For brevity, we allow connections.
+      // 3. Verify Session against Better Auth
+      const session = await auth.api.getSession({ headers });
+
+      if (!session) {
+        console.warn(`[Gateway] Unauthorized connection rejected: ${client.id}`);
+        client.disconnect();
+        return;
+      }
+
+      // 4. Attach verified user to socket for tracked event broadcasts
+      client.data.user = session.user;
+      console.log(`[Gateway] Authenticated client connected: ${client.id} (User: ${session.user.id})`);
+
+    } catch (e) {
+      console.error('[Gateway] Connection Error:', e);
+      client.disconnect();
+    }
   }
 
   handleDisconnect(client: Socket) {

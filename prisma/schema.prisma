@@ -66,6 +66,8 @@ model User {
   withdrawals   Withdrawal[]
 
   @@index([referredById])
+  @@index([role])
+  @@index([phoneNumber])
   @@map("user")
 }
 
@@ -170,6 +172,8 @@ model Restaurant {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([isActive, isVerified, isOpen])
 }
 
 // 📂 Menu Structure
@@ -210,6 +214,7 @@ model MenuItem {
   updatedAt DateTime @updatedAt
 
   @@index([categoryId])
+  @@index([isAvailable])
 }
 
 // 🛵 Delivery Partners (Riders)
@@ -235,6 +240,8 @@ model DriverProfile {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([status])
 }
 
 // ==========================================
