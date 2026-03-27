@@ -72,7 +72,14 @@ export class DeliveryService {
     if (!profile) throw new NotFoundException('Driver profile not found.');
     if (profile.status !== 'ONLINE') throw new ConflictException('You must be ONLINE to see orders.');
 
-    return this.prisma.order.findMany({
+    // 1. Safety check: Ensure the driver has a fresh location ping (within last 10 mins)
+    const TEN_MINUTES_AGO = new Date(Date.now() - 10 * 60 * 1000);
+    
+    if (!profile.currentLat || !profile.currentLng || profile.updatedAt < TEN_MINUTES_AGO) {
+      throw new BadRequestException('Your live location is stale or unknown. Please ensure the app is open and location is updating.');
+    }
+
+    const availableOrders = await this.prisma.order.findMany({
       where: {
         status: 'READY',
         driverId: null, // Only orders without a driver
@@ -86,6 +93,24 @@ export class DeliveryService {
         }
       },
       orderBy: { placedAt: 'asc' }
+    });
+
+    // 2. Geo-Fencing Filter (The "Uber" Logic)
+    // Only show orders where the Restaurant (pickup point) is within 10km of the Driver
+    const MAX_DISTANCE_KM = 10;
+    
+    return availableOrders.filter(order => {
+      const distance = this.calculateDistance(
+        profile.currentLat!,
+        profile.currentLng!,
+        order.restaurant.lat,
+        order.restaurant.lng
+      );
+      
+      // We can also attach the straight-line distance so the frontend can sort or display it
+      (order as any).distanceToRestaurantKm = parseFloat(distance.toFixed(2));
+      
+      return distance <= MAX_DISTANCE_KM;
     });
   }
 
