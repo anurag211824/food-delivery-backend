@@ -25,6 +25,13 @@ export class DeliveryController {
     return this.deliveryService.createProfile(req.user.id, createDeliveryDto);
   }
 
+  @Get('me')
+  @ApiOperation({ summary: "Get My Delivery Profile" })
+  @ApiResponse({ status: 200, description: "Returns driver profile and user details" })
+  async getProfile(@Req() req: AuthenticatedRequest) {
+    return this.deliveryService.getProfile(req.user.id);
+  }
+
   // toggle status
 
   @Patch("status")

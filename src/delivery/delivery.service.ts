@@ -31,6 +31,22 @@ export class DeliveryService {
       }
     })
   }
+  async getProfile(userId: string) {
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+      include: {
+        user: {
+          select: { name: true, email: true, phoneNumber: true, image: true }
+        }
+      }
+    });
+
+    if (!profile) {
+      throw new NotFoundException('Driver profile not found.');
+    }
+
+    return profile;
+  }
 
   // change status ( online / offline)
 
