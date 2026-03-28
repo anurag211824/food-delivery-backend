@@ -234,6 +234,14 @@ export class OrdersService {
     if (status === 'ACCEPTED') {
       title = 'Order Accepted! 🍔';
       body = 'The restaurant has accepted your order and is preparing it.';
+    } else if (status === 'READY') {
+      title = 'Order is Ready! 🛍️';
+      body = 'The restaurant has finished preparing your order. Assigning a delivery partner...';
+      
+      // 🔥 TRIGGER AUTO-DISPATCH 🔥
+      this.orderQueue.add('dispatch-order', { orderId: orderId, ignoredDriverIds: [] })
+        .catch(e => console.error('Failed to trigger auto-dispatch', e));
+
     } else if (status === 'ON_THE_WAY') {
       title = 'Out for Delivery! 🛵';
       body = 'Your food is on the way to you.';

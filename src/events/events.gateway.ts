@@ -54,7 +54,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // 4. Attach verified user to socket for tracked event broadcasts
       client.data.user = session.user;
-      console.log(`[Gateway] Authenticated client connected: ${client.id} (User: ${session.user.id})`);
+      
+      // 5. Always join their persistent, unique user room
+      const userRoom = `user_${session.user.id}`;
+      client.join(userRoom);
+      console.log(`[Gateway] Authenticated client connected & joined room ${userRoom}: ${client.id}`);
 
     } catch (e) {
       console.error('[Gateway] Connection Error:', e);
@@ -107,5 +111,11 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       status: newStatus,
       timestamp: new Date().toISOString(),
     });
+  }
+
+  // 5. Send order offer directly to a specific user (Driver)
+  emitOrderOffered(userId: string, payload: any) {
+    const userRoom = `user_${userId}`;
+    this.server.to(userRoom).emit('order_offered', payload);
   }
 }

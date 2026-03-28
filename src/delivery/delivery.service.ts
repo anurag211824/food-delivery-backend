@@ -134,6 +134,12 @@ export class DeliveryService {
       }
     });
 
+    // Make the driver BUSY so they don't get pinged for more orders
+    await this.prisma.driverProfile.update({
+      where: { id: profile.id },
+      data: { status: 'BUSY' }
+    });
+
     this.eventsGateway.emitOrderStatusChange(orderId, 'ON_THE_WAY');
 
     return updatedOrder;
@@ -167,10 +173,13 @@ export class DeliveryService {
       }
     });
 
-    // Increment totalDeliveries counter on driver profile
+    // Increment totalDeliveries counter and make driver available again
     await this.prisma.driverProfile.update({
       where: { id: profile.id },
-      data: { totalDeliveries: { increment: 1 } },
+      data: { 
+        totalDeliveries: { increment: 1 },
+        status: 'ONLINE',
+      },
     });
 
     // 💰 Credit driver earnings: deliveryCharge + driverTip → driver's wallet
