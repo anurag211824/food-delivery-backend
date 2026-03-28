@@ -226,6 +226,33 @@ export class OrdersService {
     // 🚀 Real-time event!
     this.eventsGateway.emitOrderStatusChange(orderId, status);
 
+    // 📱 Push Notification!
+    let title = 'Order Update';
+    let body = `Your order is now ${status}`;
+    
+    // Make messages more user-friendly based on status
+    if (status === 'ACCEPTED') {
+      title = 'Order Accepted! 🍔';
+      body = 'The restaurant has accepted your order and is preparing it.';
+    } else if (status === 'ON_THE_WAY') {
+      title = 'Out for Delivery! 🛵';
+      body = 'Your food is on the way to you.';
+    } else if (status === 'DELIVERED') {
+      title = 'Order Delivered! 🎉';
+      body = 'Enjoy your meal!';
+    } else if (status === 'CANCELLED') {
+      title = 'Order Cancelled ❌';
+      body = 'Your order has been cancelled.';
+    }
+
+    this.notificationsService.send(
+      order.customerId,
+      title,
+      body,
+      'ORDER_UPDATE',
+      { orderId, status }
+    ).catch(e => console.error('Failed to send order update push notification', e));
+
     return updatedOrder;
   }
 
@@ -351,6 +378,15 @@ export class OrdersService {
 
     // 3. Emit real-time status update
     this.eventsGateway.emitOrderStatusChange(order.id, 'CANCELLED');
+
+    // 4. Send Push Notification
+    this.notificationsService.send(
+      order.customerId,
+      'Order Cancelled ❌',
+      `Your order was cancelled: ${reason}`,
+      'ORDER_UPDATE',
+      { orderId: order.id, status: 'CANCELLED' }
+    ).catch(e => console.error('Failed to send order cancelled push notification', e));
 
     return cancelledOrder;
   }

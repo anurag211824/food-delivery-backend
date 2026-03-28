@@ -73,4 +73,26 @@ export class NotificationsController {
     async broadcast(@Body('title') title: string, @Body('body') body: string) {
         return this.notificationsService.sendToAll(title, body, 'PROMO');
     }
+
+    // ─── REGISTER PUSH TOKEN ──────────────────────────────────────────────
+    @Post('register-push-token')
+    @ApiOperation({ summary: 'Register Expo Push Token for the current session' })
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: {
+                token: { type: 'string', example: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]' },
+            },
+        },
+    })
+    async registerPushToken(
+        @Req() req: AuthenticatedRequest,
+        @Body('token') token: string,
+    ) {
+        const sessionId = req['session']?.id;
+        if (!sessionId) {
+            throw new Error('No active session found.');
+        }
+        return this.notificationsService.registerPushToken(sessionId, token);
+    }
 }

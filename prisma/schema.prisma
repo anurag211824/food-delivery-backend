@@ -81,6 +81,8 @@ model Session {
   userAgent String?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  pushToken String?   // Added for Expo Push Notifications
 
   @@unique([token])
   @@index([userId])

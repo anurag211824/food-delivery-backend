@@ -1,9 +1,16 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { Expo, ExpoPushMessage } from 'expo-server-sdk';
 
 @Injectable()
 export class NotificationsService {
-    constructor(private readonly prisma: PrismaService) { }
+    private expo: Expo;
+    private readonly logger = new Logger(NotificationsService.name);
+
+    constructor(private readonly prisma: PrismaService) {
+        // Initialize Expo client
+        this.expo = new Expo();
+    }
 
     // ─── SEND A NOTIFICATION (INTERNAL USE) ───────────────────────────────
     async send(userId: string, title: string, body: string, type: string, data?: any) {
@@ -11,8 +18,20 @@ export class NotificationsService {
             data: { userId, title, body, type, data },
         });
 
-        // TODO: When Firebase is configured, send FCM push here:
-        // await this.sendFCMPush(userId, title, body, data);
+        // 1. Fetch user's active push tokens
+        const activeSessions = await this.prisma.session.findMany({
+            where: {
+                userId,
+                pushToken: { not: null }
+            },
+            select: { pushToken: true }
+        });
+
+        const tokens = activeSessions.map(s => s.pushToken as string);
+
+        if (tokens.length > 0) {
+            await this.sendExpoPush(tokens, title, body, data);
+        }
 
         return notification;
     }
@@ -32,9 +51,61 @@ export class NotificationsService {
 
         await this.prisma.notification.createMany({ data: notifications });
 
-        // TODO: Send FCM to all device tokens here
+        // Fetch all unique push tokens in the system
+        const sessions = await this.prisma.session.findMany({
+            where: { pushToken: { not: null } },
+            select: { pushToken: true }
+        });
+
+        const tokens = Array.from(new Set(sessions.map(s => s.pushToken as string)));
+
+        if (tokens.length > 0) {
+            await this.sendExpoPush(tokens, title, body);
+        }
 
         return { sent: users.length };
+    }
+
+    // ─── EXPO PUSH HELPERS ────────────────────────────────────────────────
+    private async sendExpoPush(pushTokens: string[], title: string, body: string, data?: any) {
+        const messages: ExpoPushMessage[] = [];
+
+        // Pre-filter valid Expo tokens
+        for (const pushToken of pushTokens) {
+            if (!Expo.isExpoPushToken(pushToken)) {
+                this.logger.warn(`Push token ${pushToken} is not a valid Expo push token`);
+                continue;
+            }
+
+            messages.push({
+                to: pushToken,
+                sound: 'default',
+                title,
+                body,
+                data: data || {},
+            });
+        }
+
+        // The Expo SDK auto-batches requests
+        const chunks = this.expo.chunkPushNotifications(messages);
+        
+        for (const chunk of chunks) {
+            try {
+                const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
+                // Can log or process ticketChunk to find unregistered devices to prune them
+            } catch (error) {
+                this.logger.error('Error sending Expo push notification chunk', error);
+            }
+        }
+    }
+
+    // ─── REGISTER PUSH TOKEN ──────────────────────────────────────────────
+    async registerPushToken(sessionId: string, pushToken: string) {
+        return this.prisma.session.update({
+            where: { id: sessionId },
+            data: { pushToken },
+            select: { id: true, userId: true, pushToken: true }
+        });
     }
 
     // ─── GET MY NOTIFICATIONS ─────────────────────────────────────────────
