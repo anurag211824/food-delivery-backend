@@ -95,4 +95,46 @@ export class NotificationsController {
         }
         return this.notificationsService.registerPushToken(sessionId, token);
     }
+
+    // ─── GET PUSH TOKEN ──────────────────────────────────────────────────
+    @Get('push-token')
+    @ApiOperation({ summary: 'Get the push token registered for the current session' })
+    @ApiResponse({ status: 200, description: 'Returns the current session push token' })
+    async getPushToken(@Req() req: AuthenticatedRequest) {
+        const sessionId = req['session']?.id;
+        if (!sessionId) {
+            throw new Error('No active session found.');
+        }
+        return this.notificationsService.getPushToken(sessionId);
+    }
+
+    // ─── UPDATE PUSH TOKEN ───────────────────────────────────────────────
+    @Patch('push-token')
+    @ApiOperation({
+        summary: 'Update or clear the push token for the current session',
+        description: 'Send a new token to update, or null to unregister push notifications for this device.',
+    })
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: {
+                token: {
+                    type: 'string',
+                    nullable: true,
+                    example: 'ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]',
+                    description: 'New push token, or null to unregister',
+                },
+            },
+        },
+    })
+    async updatePushToken(
+        @Req() req: AuthenticatedRequest,
+        @Body('token') token: string | null,
+    ) {
+        const sessionId = req['session']?.id;
+        if (!sessionId) {
+            throw new Error('No active session found.');
+        }
+        return this.notificationsService.updatePushToken(sessionId, token);
+    }
 }

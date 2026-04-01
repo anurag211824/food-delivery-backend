@@ -108,6 +108,23 @@ export class NotificationsService {
         });
     }
 
+    // ─── GET PUSH TOKEN ──────────────────────────────────────────────────
+    async getPushToken(sessionId: string) {
+        return this.prisma.session.findUnique({
+            where: { id: sessionId },
+            select: { id: true, userId: true, pushToken: true }
+        });
+    }
+
+    // ─── UPDATE PUSH TOKEN ───────────────────────────────────────────────
+    async updatePushToken(sessionId: string, pushToken: string | null) {
+        return this.prisma.session.update({
+            where: { id: sessionId },
+            data: { pushToken },
+            select: { id: true, userId: true, pushToken: true }
+        });
+    }
+
     // ─── GET MY NOTIFICATIONS ─────────────────────────────────────────────
     async getMyNotifications(userId: string, page = 1, limit = 20) {
         const skip = (page - 1) * limit;
