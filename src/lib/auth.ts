@@ -74,6 +74,15 @@ export const auth = betterAuth({
     ],
 
     trustedOrigins: ["food-delivery-customer://"],
+    
+    session: {
+        additionalFields: {
+            pushToken: {
+                type: "string",
+                required: false,
+            },
+        },
+    },
 
     user: {
         additionalFields: {
