@@ -155,7 +155,19 @@ export class OrdersService {
       { orderId: order.id },
     );
 
-    // ─── Step 5: Schedule Auto-Cancel for Unpaid Orders ──────────────────
+    // ─── Step 5: Real-time — Push new order to restaurant dashboard ──────
+    this.eventsGateway.emitNewOrderToRestaurant(restaurant.id, {
+      orderId: order.id,
+      totalAmount,
+      itemCount: order.items.length,
+      paymentMode: dto.paymentMode,
+      timestamp: new Date().toISOString(),
+    });
+
+    // ─── Step 6: Auto-join customer into this order's tracking room ──────
+    this.eventsGateway.joinUserToOrderRoom(userId, order.id);
+
+    // ─── Step 7: Schedule Auto-Cancel for Unpaid Orders ──────────────────
     if (!order.isPaid && order.paymentMode !== 'COD') {
       await this.orderQueue.add(
         'cancel-unpaid-order',
@@ -261,6 +273,10 @@ export class OrdersService {
       'ORDER_UPDATE',
       { orderId, status }).catch(e => console.error('Failed to send order update push notification', e));
 
+    // 🧹 Auto-cleanup room on terminal statuses
+    if (['DELIVERED', 'CANCELLED', 'REFUSED'].includes(status)) {
+      this.eventsGateway.cleanupOrderRoom(orderId);
+    }
 
     return updatedOrder;
   }
@@ -449,6 +465,9 @@ export class OrdersService {
       'ORDER_UPDATE',
       { orderId: order.id, status: 'CANCELLED' }
     ).catch(e => console.error('Failed to send order cancelled push notification', e));
+
+    // 5. Auto-cleanup the order tracking room
+    this.eventsGateway.cleanupOrderRoom(order.id);
 
     return cancelledOrder;
   }

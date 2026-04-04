@@ -84,6 +84,20 @@ export class DeliveryController {
     return this.deliveryService.completeOrder(req.user.id, orderId, completeDto.otp);
   }
 
+  @Post('orders/:id/decline')
+  @ApiOperation({
+    summary: 'Decline a delivery offer',
+    description: 'Explicitly decline an offered order. The system will immediately offer it to the next closest driver.',
+  })
+  @ApiParam({ name: 'id', description: 'Order ID' })
+  @ApiResponse({ status: 200, description: 'Order declined and re-dispatched.' })
+  async declineOrder(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') orderId: string,
+  ) {
+    return this.deliveryService.declineOrder(req.user.id, orderId);
+  }
+
   // ─── MY CURRENT ORDER ──────────────────────────────────────────────────
   @Get('my-current-order')
   @ApiOperation({

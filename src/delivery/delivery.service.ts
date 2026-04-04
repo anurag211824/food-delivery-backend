@@ -1,9 +1,12 @@
 import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { DriverStatus } from '@prisma/client';
 import { EventsGateway } from '../events/events.gateway';
 import { WalletsService } from '../wallets/wallets.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class DeliveryService {
@@ -11,6 +14,8 @@ export class DeliveryService {
     private readonly prisma: PrismaService,
     private readonly eventsGateway: EventsGateway,
     private readonly walletsService: WalletsService,
+    private readonly notificationsService: NotificationsService,
+    @InjectQueue('orders') private readonly orderQueue: Queue,
   ) { }
 
   async createProfile(userId: string, dto: CreateDeliveryDto) {
@@ -115,10 +120,16 @@ export class DeliveryService {
   }
 
   async acceptOrder(userId: string, orderId: string) {
-    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+      include: { user: { select: { name: true, phoneNumber: true } } },
+    });
     if (!profile) throw new NotFoundException('Driver profile not found.');
 
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { restaurant: true },
+    });
     if (!order) throw new NotFoundException('Order not found.');
     if (order.status !== 'READY' || order.driverId !== null) {
       throw new ConflictException('Order is no longer available.');
@@ -140,7 +151,28 @@ export class DeliveryService {
       data: { status: 'BUSY' }
     });
 
+    // 🚀 Real-time: Status update to all watchers
     this.eventsGateway.emitOrderStatusChange(orderId, 'ON_THE_WAY');
+
+    // 🚀 Real-time: Auto-join driver into the order tracking room
+    this.eventsGateway.joinUserToOrderRoom(userId, orderId);
+
+    // 🚀 Real-time: Notify customer + restaurant that a driver has been assigned
+    this.eventsGateway.emitDriverAssigned(orderId, {
+      name: profile.user.name,
+      phone: profile.user.phoneNumber,
+      vehiclePlate: profile.vehiclePlate,
+      profilePic: profile.profilePic,
+    });
+
+    // 📱 Push notification to customer
+    this.notificationsService.send(
+      order.customerId,
+      'Driver Assigned! 🛵',
+      `${profile.user.name} is picking up your order from ${order.restaurant.name}.`,
+      'ORDER_UPDATE',
+      { orderId, status: 'ON_THE_WAY' }
+    ).catch(e => console.error('Failed to send driver assigned push', e));
 
     return updatedOrder;
   }
@@ -194,7 +226,41 @@ export class DeliveryService {
 
     this.eventsGateway.emitOrderStatusChange(orderId, 'DELIVERED');
 
+    // 🧹 Auto-cleanup the order tracking room
+    this.eventsGateway.cleanupOrderRoom(orderId);
+
+    // 📱 Push notification to customer
+    this.notificationsService.send(
+      order.customerId,
+      'Order Delivered! 🎉',
+      'Enjoy your meal! Don\'t forget to leave a review.',
+      'ORDER_UPDATE',
+      { orderId, status: 'DELIVERED' }
+    ).catch(e => console.error('Failed to send delivery complete push', e));
+
     return deliveredOrder;
+  }
+
+  // ─── DRIVER DECLINE ORDER ─────────────────────────────────────────
+  async declineOrder(userId: string, orderId: string) {
+    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    if (!profile) throw new NotFoundException('Driver profile not found.');
+
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found.');
+
+    if (order.status !== 'READY' || order.driverId !== null) {
+      throw new ConflictException('Order is no longer available for decline.');
+    }
+
+    // Immediately re-dispatch to the next driver, skipping this one
+    await this.orderQueue.add(
+      'dispatch-order',
+      { orderId, ignoredDriverIds: [userId] },
+      { delay: 0 },
+    );
+
+    return { message: 'Order declined. It will be offered to the next available driver.' };
   }
 
   // ─── GET MY CURRENT ORDER ──────────────────────────────────────────────

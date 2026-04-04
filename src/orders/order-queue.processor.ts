@@ -164,6 +164,9 @@ export class OrderQueueProcessor extends WorkerHost {
             return;
         }
 
+        // Tell the timed-out driver's app to dismiss the offer popup
+        this.eventsGateway.emitOrderOfferExpired(pingedDriverId, orderId);
+
         this.logger.log(`Order ${orderId} was not accepted by ${pingedDriverId}. Re-dispatching.`);
         
         await this.orderQueue.add(
