@@ -36,6 +36,14 @@ export class OrdersController {
     return this.ordersService.getRestaurantOrders(user.id, dto)
   }
 
+  @Get('current')
+  @ApiOperation({ summary: 'Get current active order for user' })
+  @ApiResponse({ status: 200, description: 'Current active order data' })
+  @ApiResponse({ status: 404, description: 'No active order found' })
+  async getCurrentOrder(@Req() req: AuthenticatedRequest) {
+    return this.ordersService.getCurrentOrder(req.user.id);
+  }
+
   @Get(":id")
   @ApiOperation({ summary: "get order data by orderid" })
   @ApiResponse({ status: 200, description: "order data" })

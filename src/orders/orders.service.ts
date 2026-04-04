@@ -281,6 +281,35 @@ export class OrdersService {
     return order;
   }
 
+  async getCurrentOrder(userId: string) {
+    const currentOrder = await this.prisma.order.findFirst({
+      where: {
+        customerId: userId,
+        status: {
+          notIn: ['DELIVERED', 'CANCELLED', 'REFUSED']
+        }
+      },
+      include: {
+        restaurant: {
+          select: { name: true, image: true, id: true, address: true, lat: true, lng: true }
+        },
+        driver: {
+          select: { user: { select: { name: true, phoneNumber: true } }, vehiclePlate: true, profilePic: true }
+        },
+        items: {
+          include: { menuItem: true }
+        }
+      },
+      orderBy: { placedAt: 'desc' }
+    });
+
+    if (!currentOrder) {
+      throw new NotFoundException("No active order found");
+    }
+    
+    return currentOrder;
+  }
+
   async getCustomerOrders(userId: string, dto: PaginationDto) {
     const pageNumber = dto.page || 1;
     const limitNumber = dto.limit || 10;
