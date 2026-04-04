@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { PaginationDto } from '../common/pagination.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { OrderStatus, PaymentMethod, Role, User } from '@prisma/client';
 import { WalletsService } from '../wallets/wallets.service';
@@ -280,38 +281,62 @@ export class OrdersService {
     return order;
   }
 
-  async getCustomerOrders(userId: string) {
-    return this.prisma.order.findMany({
-      where: { customerId: userId },
-      include: {
-        restaurant: {
-          select: { name: true, image: true, id: true }
+  async getCustomerOrders(userId: string, dto: PaginationDto) {
+    const pageNumber = dto.page || 1;
+    const limitNumber = dto.limit || 10;
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const [data, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { customerId: userId },
+        skip,
+        take: limitNumber,
+        include: {
+          restaurant: {
+            select: { name: true, image: true, id: true }
+          },
+          items: {
+            include: { menuItem: true }
+          }
         },
-        items: {
-          include: { menuItem: true }
-        }
-      },
-      orderBy: { placedAt: 'desc' }
-    });
+        orderBy: { placedAt: 'desc' }
+      }),
+      this.prisma.order.count({ where: { customerId: userId } })
+    ]);
+
+    return { data, meta: { total, page: pageNumber, limit: limitNumber, totalPages: Math.ceil(total / limitNumber) } };
   }
 
-  async getRestaurantOrders(managerId: string) {
-    return this.prisma.order.findMany({
-      where: {
-        restaurant: {
-          managerId: managerId,
-        }
-      },
-      include: {
-        customer: {
-          select: { id: true, name: true, email: true },
+  async getRestaurantOrders(managerId: string, dto: PaginationDto) {
+    const pageNumber = dto.page || 1;
+    const limitNumber = dto.limit || 10;
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const where = {
+      restaurant: {
+        managerId: managerId,
+      }
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.order.findMany({
+        where,
+        skip,
+        take: limitNumber,
+        include: {
+          customer: {
+            select: { id: true, name: true, email: true },
+          },
+          items: {
+            include: { menuItem: true },
+          },
         },
-        items: {
-          include: { menuItem: true },
-        },
-      },
-      orderBy: { placedAt: 'desc' },
-    })
+        orderBy: { placedAt: 'desc' },
+      }),
+      this.prisma.order.count({ where })
+    ]);
+
+    return { data, meta: { total, page: pageNumber, limit: limitNumber, totalPages: Math.ceil(total / limitNumber) } };
   }
 
   // ─── CUSTOMER CANCEL ORDER ──────────────────────────────────────────────

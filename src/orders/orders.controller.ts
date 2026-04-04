@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Body, Patch, Delete, Param, Req, UseGuards
+  Controller, Get, Post, Body, Patch, Delete, Param, Req, UseGuards, Query
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiBody } from '@nestjs/swagger';
 import { OrderStatus, Role } from '@prisma/client';
@@ -10,6 +10,7 @@ import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import type { AuthenticatedRequest } from 'src/auth/auth.types';
+import { PaginationDto } from '../common/pagination.dto';
 
 @ApiTags('Orders')
 @ApiBearerAuth()
@@ -21,18 +22,18 @@ export class OrdersController {
 
   @Get('my-history')
   @ApiOperation({ summary: 'Get current user order history' })
-  async getMyOrders(@Req() req: AuthenticatedRequest) {
+  async getMyOrders(@Req() req: AuthenticatedRequest, @Query() dto: PaginationDto) {
     const user = (req as any).user;
-    return this.ordersService.getCustomerOrders(user.id);
+    return this.ordersService.getCustomerOrders(user.id, dto);
   }
 
   @Get('restaurant')
   @ApiOperation({ summary: "Get Orders for managed restaurant (Manager Only)" })
   @UseGuards(RolesGuard)
   @Roles(Role.RESTAURANT_MANAGER)
-  async getRestaurantOrders(@Req() req: AuthenticatedRequest) {
+  async getRestaurantOrders(@Req() req: AuthenticatedRequest, @Query() dto: PaginationDto) {
     const user = req.user;
-    return this.ordersService.getRestaurantOrders(user.id)
+    return this.ordersService.getRestaurantOrders(user.id, dto)
   }
 
   @Get(":id")

@@ -207,19 +207,43 @@ export class WalletsService {
         });
     }
 
-    async getMyWithdrawals(userId: string) {
-        return this.prisma.withdrawal.findMany({
-            where: { userId },
-            orderBy: { createdAt: 'desc' },
-        });
+    async getMyWithdrawals(userId: string, dto: PaginationDto) {
+        const pageNumber = dto.page || 1;
+        const limitNumber = dto.limit || 10;
+        const skip = (pageNumber - 1) * limitNumber;
+
+        const [data, total] = await Promise.all([
+            this.prisma.withdrawal.findMany({
+                where: { userId },
+                skip,
+                take: limitNumber,
+                orderBy: { createdAt: 'desc' },
+            }),
+            this.prisma.withdrawal.count({ where: { userId } })
+        ]);
+
+        return { data, meta: { total, page: pageNumber, limit: limitNumber, totalPages: Math.ceil(total / limitNumber) } };
     }
 
-    async getAllWithdrawals(status?: import('@prisma/client').RequestStatus) {
-        return this.prisma.withdrawal.findMany({
-            where: status ? { status } : {},
-            include: { user: { select: { name: true, email: true, role: true } } },
-            orderBy: { createdAt: 'desc' },
-        });
+    async getAllWithdrawals(dto: PaginationDto, status?: import('@prisma/client').RequestStatus) {
+        const pageNumber = dto.page || 1;
+        const limitNumber = dto.limit || 10;
+        const skip = (pageNumber - 1) * limitNumber;
+
+        const where = status ? { status } : {};
+
+        const [data, total] = await Promise.all([
+            this.prisma.withdrawal.findMany({
+                where,
+                skip,
+                take: limitNumber,
+                include: { user: { select: { name: true, email: true, role: true } } },
+                orderBy: { createdAt: 'desc' },
+            }),
+            this.prisma.withdrawal.count({ where })
+        ]);
+
+        return { data, meta: { total, page: pageNumber, limit: limitNumber, totalPages: Math.ceil(total / limitNumber) } };
     }
 
     async resolveWithdrawal(id: string, dto: import('./dto/resolve-withdrawal.dto').ResolveWithdrawalDto) {

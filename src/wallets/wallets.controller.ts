@@ -60,16 +60,16 @@ export class WalletsController {
 
     @Get('withdrawals/my')
     @ApiOperation({ summary: 'Get my withdrawal requests' })
-    async getMyWithdrawals(@Req() req: AuthenticatedRequest) {
-        return this.walletsService.getMyWithdrawals(req.user.id);
+    async getMyWithdrawals(@Req() req: AuthenticatedRequest, @Query() dto: PaginationDto) {
+        return this.walletsService.getMyWithdrawals(req.user.id, dto);
     }
 
     @Get('withdrawals/all')
     @UseGuards(RolesGuard)
     @Roles(Role.ADMIN)
     @ApiOperation({ summary: '[Admin] View all withdrawal requests' })
-    async getAllWithdrawals(@Query('status') status?: RequestStatus) {
-        return this.walletsService.getAllWithdrawals(status);
+    async getAllWithdrawals(@Query() dto: PaginationDto, @Query('status') status?: RequestStatus) {
+        return this.walletsService.getAllWithdrawals(dto, status);
     }
 
     @Patch('withdrawals/:id/resolve')

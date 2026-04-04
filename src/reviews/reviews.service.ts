@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { PrismaService } from '../prisma/prisma.service';
-
+import { PaginationDto } from '../common/pagination.dto';
 @Injectable()
 export class ReviewsService {
   constructor(private readonly prisma: PrismaService) { }
@@ -80,20 +80,31 @@ export class ReviewsService {
     });
   }
 
-  async findRestaurantReviews(restaurantId: string) {
+  async findRestaurantReviews(restaurantId: string, dto: PaginationDto) {
     const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
     if (!restaurant) {
       throw new NotFoundException("Restaurant not found.");
     }
 
-    return this.prisma.review.findMany({
-      where: { restaurantId },
-      include: {
-        user: {
-          select: { name: true, image: true }
-        }
-      },
-      orderBy: { createdAt: 'desc' }
-    });
+    const pageNumber = dto.page || 1;
+    const limitNumber = dto.limit || 10;
+    const skip = (pageNumber - 1) * limitNumber;
+
+    const [data, total] = await Promise.all([
+      this.prisma.review.findMany({
+        where: { restaurantId },
+        skip,
+        take: limitNumber,
+        include: {
+          user: {
+            select: { name: true, image: true }
+          }
+        },
+        orderBy: { createdAt: 'desc' }
+      }),
+      this.prisma.review.count({ where: { restaurantId } })
+    ]);
+
+    return { data, meta: { total, page: pageNumber, limit: limitNumber, totalPages: Math.ceil(total / limitNumber) } };
   }
 }

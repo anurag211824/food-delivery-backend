@@ -87,26 +87,40 @@ export class AdminService {
     }
 
     // ─── LIST PARTNER REQUESTS ────────────────────────────────────────────────
-    async listRequests(type: 'restaurant' | 'delivery', status?: RequestStatus) {
+    async listRequests(type: 'restaurant' | 'delivery', status?: RequestStatus, page = 1, limit = 20) {
+        const skip = (page - 1) * limit;
         const where = status ? { status } : {};
 
         if (type === 'restaurant') {
-            return this.prisma.restaurantRequest.findMany({
+            const [data, total] = await Promise.all([
+                this.prisma.restaurantRequest.findMany({
+                    where,
+                    skip,
+                    take: limit,
+                    include: {
+                        user: { select: { id: true, name: true, email: true, phoneNumber: true } },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                }),
+                this.prisma.restaurantRequest.count({ where })
+            ]);
+            return { data, total, page, limit };
+        }
+
+        const [data, total] = await Promise.all([
+            this.prisma.deliveryPartnerRequest.findMany({
                 where,
+                skip,
+                take: limit,
                 include: {
                     user: { select: { id: true, name: true, email: true, phoneNumber: true } },
                 },
                 orderBy: { createdAt: 'desc' },
-            });
-        }
+            }),
+            this.prisma.deliveryPartnerRequest.count({ where })
+        ]);
 
-        return this.prisma.deliveryPartnerRequest.findMany({
-            where,
-            include: {
-                user: { select: { id: true, name: true, email: true, phoneNumber: true } },
-            },
-            orderBy: { createdAt: 'desc' },
-        });
+        return { data, total, page, limit };
     }
 
     // ─── APPROVE RESTAURANT REQUEST ───────────────────────────────────────────
