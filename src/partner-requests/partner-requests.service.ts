@@ -7,10 +7,14 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRestaurantRequestDto } from './dto/create-restaurant-request.dto';
 import { CreateDeliveryRequestDto } from './dto/create-delivery-request.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class PartnerRequestsService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly notifications: NotificationsService
+    ) { }
 
     // ─── SUBMIT RESTAURANT APPLICATION ───────────────────────────────────────
     async submitRestaurantRequest(userId: string, dto: CreateRestaurantRequestDto) {
@@ -25,7 +29,7 @@ export class PartnerRequestsService {
             );
         }
 
-        return this.prisma.restaurantRequest.create({
+        const request = await this.prisma.restaurantRequest.create({
             data: {
                 userId,
                 restaurantName: dto.restaurantName,
@@ -42,6 +46,16 @@ export class PartnerRequestsService {
                 fssaiDocUrl: dto.fssaiDocUrl,
             },
         });
+
+        // Notify the user about the submission
+        await this.notifications.send(
+            userId,
+            'Restaurant Application Submitted',
+            `Your application for ${dto.restaurantName} is under review.`,
+            'PARTNER_REQUEST'
+        );
+
+        return request;
     }
 
     // ─── SUBMIT DELIVERY PARTNER APPLICATION ──────────────────────────────────
@@ -56,7 +70,7 @@ export class PartnerRequestsService {
             );
         }
 
-        return this.prisma.deliveryPartnerRequest.create({
+        const request = await this.prisma.deliveryPartnerRequest.create({
             data: {
                 userId,
                 vehicleType: dto.vehicleType,
@@ -68,6 +82,16 @@ export class PartnerRequestsService {
                 profilePicUrl: dto.profilePicUrl,
             },
         });
+
+        // Notify the user about the submission
+        await this.notifications.send(
+            userId,
+            'Delivery Partner Application Submitted',
+            `Your application to become a delivery partner is under review.`,
+            'PARTNER_REQUEST'
+        );
+
+        return request;
     }
 
     // ─── GET MY RESTAURANT REQUEST ────────────────────────────────────────────

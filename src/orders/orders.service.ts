@@ -258,8 +258,8 @@ export class OrdersService {
       title,
       body,
       'ORDER_UPDATE',
-      { orderId, status }
-    ).catch(e => console.error('Failed to send order update push notification', e));
+      { orderId, status }).catch(e => console.error('Failed to send order update push notification', e));
+
 
     return updatedOrder;
   }

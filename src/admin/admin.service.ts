@@ -2,10 +2,14 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { RequestStatus, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class AdminService {
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly notifications: NotificationsService,
+    ) { }
 
     // ─── LIST USERS ───────────────────────────────────────────────────────────
     async listUsers(role?: Role, page = 1, limit = 20) {
@@ -149,6 +153,13 @@ export class AdminService {
             }),
         ]);
 
+        await this.notifications.send(
+            request.userId,
+            'Restaurant Application Approved',
+            `Congratulations! Your application for ${request.restaurantName} has been approved.`,
+            'PARTNER_REQUEST_APPROVED'
+        );
+
         return {
             message: 'Restaurant request approved. Restaurant profile created and user promoted to RESTAURANT_MANAGER.',
             request: updatedRequest,
@@ -168,6 +179,13 @@ export class AdminService {
             where: { id: requestId },
             data: { status: RequestStatus.REJECTED, rejectionReason: reason },
         });
+
+        await this.notifications.send(
+            request.userId,
+            'Restaurant Application Rejected',
+            `Unfortunately, your application for ${request.restaurantName} was rejected. ${reason ? 'Reason: ' + reason : ''}`,
+            'PARTNER_REQUEST_REJECTED'
+        );
 
         return { message: 'Restaurant request rejected.', request: updated };
     }
@@ -208,6 +226,13 @@ export class AdminService {
             }),
         ]);
 
+        await this.notifications.send(
+            request.userId,
+            'Delivery Partner Application Approved',
+            `Congratulations! Your application to become a delivery partner has been approved.`,
+            'PARTNER_REQUEST_APPROVED'
+        );
+
         return {
             message: 'Delivery request approved. Driver profile created and user promoted to DELIVERY_PARTNER.',
             request: updatedRequest,
@@ -227,6 +252,13 @@ export class AdminService {
             where: { id: requestId },
             data: { status: RequestStatus.REJECTED, rejectionReason: reason },
         });
+
+        await this.notifications.send(
+            request.userId,
+            'Delivery Partner Application Rejected',
+            `Unfortunately, your application to become a delivery partner was rejected. ${reason ? 'Reason: ' + reason : ''}`,
+            'PARTNER_REQUEST_REJECTED'
+        );
 
         return { message: 'Delivery partner request rejected.', request: updated };
     }

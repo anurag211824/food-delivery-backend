@@ -27,6 +27,28 @@ import { CouponsModule } from './coupons/coupons.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { BullModule } from '@nestjs/bullmq';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import Redis, { RedisOptions } from 'ioredis';
+
+function getRedisOptions(redisUrl?: string): RedisOptions {
+  if (!redisUrl) {
+    return {
+      host: '127.0.0.1',
+      port: 6379,
+    };
+  }
+
+  const url = new URL(redisUrl);
+  const shouldUseTls =
+    url.protocol === 'rediss:' || url.hostname.endsWith('.upstash.io');
+
+  return {
+    host: url.hostname,
+    port: url.port ? parseInt(url.port, 10) : 6379,
+    username: url.username || undefined,
+    password: url.password || undefined,
+    tls: shouldUseTls ? {} : undefined,
+  };
+}
 
 @Module({
   imports: [
@@ -37,7 +59,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       useFactory: (configService: ConfigService) => ({
         throttlers: [{ ttl: 60000, limit: 100 }],
         storage: new ThrottlerStorageRedisService(
-          configService.get<string>('REDIS_URL') ?? 'redis://127.0.0.1:6379'
+          new Redis(getRedisOptions(configService.get<string>('REDIS_URL')))
         ),
       }),
     }),
@@ -45,24 +67,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: async (configService: ConfigService) => {
-        const redisUrl = configService.get<string>('REDIS_URL');
-        if (redisUrl) {
-          const url = new URL(redisUrl);
-          return {
-            connection: {
-              host: url.hostname,
-              port: parseInt(url.port, 10),
-              username: url.username || undefined,
-              password: url.password || undefined,
-              tls: url.protocol === 'rediss:' ? {} : undefined,
-            },
-          };
-        }
-        // Fallback to local Docker Redis if no URL is provided in .env
         return {
           connection: {
-            host: '127.0.0.1',
-            port: 6379,
+            ...getRedisOptions(configService.get<string>('REDIS_URL')),
+            maxRetriesPerRequest: null,
           },
         };
       },
