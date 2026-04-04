@@ -1,12 +1,17 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, Inject } from '@nestjs/common';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import {MenuItem} from "@prisma/client"
+import { MenuItem } from "@prisma/client";
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 
 @Injectable()
 export class MenuItemsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache
+  ) {}
 
   async create(dto: CreateMenuItemDto,managerId:string):Promise<MenuItem> {
     const category = await this.prisma.menuCategory.findUnique({
@@ -22,7 +27,7 @@ export class MenuItemsService {
       throw new ForbiddenException("You do not have permission to add items to this category.")
     }
 
-    return this.prisma.menuItem.create({
+    const newItem = await this.prisma.menuItem.create({
      data: {
         name: dto.name,
         description: dto.description,
@@ -34,7 +39,10 @@ export class MenuItemsService {
         prepTime: dto.prepTime,
         categoryId: dto.categoryId,
       }
-    })
+    });
+    
+    await this.cacheManager.clear();
+    return newItem;
   }
 
   async findAll() {
@@ -75,10 +83,13 @@ export class MenuItemsService {
       throw new NotFoundException("Menu item not found");
     }
 
-    return this.prisma.menuItem.update({
+    const updatedItem = await this.prisma.menuItem.update({
       where: { id },
       data: updateMenuItemDto,
     });
+    
+    await this.cacheManager.clear();
+    return updatedItem;
   }
 
   async remove(id: string) {
@@ -90,8 +101,11 @@ export class MenuItemsService {
       throw new NotFoundException("Menu item not found");
     }
 
-    return this.prisma.menuItem.delete({
+    const deletedItem = await this.prisma.menuItem.delete({
       where: { id }
     });
+    
+    await this.cacheManager.clear();
+    return deletedItem;
   }
 }

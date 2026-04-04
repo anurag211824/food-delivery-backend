@@ -1,14 +1,19 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, Inject } from '@nestjs/common';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Restaurant, VegType } from '@prisma/client';
 import { SearchRestaurantsDto } from './dto/search-restaurants.dto';
 import { PaginationDto } from 'src/common/pagination.dto';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 
 @Injectable()
 export class RestaurantsService {
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache
+  ) { }
 
   async create(createRestaurantDto: CreateRestaurantDto, managerId: string): Promise<Restaurant> {
     const existing = await this.prisma.restaurant.findUnique({
@@ -278,20 +283,26 @@ export class RestaurantsService {
   // 3. MANAGEMENT TOOLS
   async update(id: string, dto: UpdateRestaurantDto) {
     try {
-      return await this.prisma.restaurant.update({
+      const updated = await this.prisma.restaurant.update({
         where: { id },
         data: dto
       });
+      // Invalidate cache global so searches and listing fetch fresh data immediately
+      await this.cacheManager.clear();
+      return updated;
     } catch (error) {
       throw new NotFoundException(`Restaurant ${id} not found`);
     }
   }
 
   async remove(id: string) {
-    return this.prisma.restaurant.update({
+    const deleted = await this.prisma.restaurant.update({
       where: { id },
       data: { isActive: false } // Soft delete as per your safety plan 
     });
+    // Invalidate cache entirely
+    await this.cacheManager.clear();
+    return deleted;
   }
 
   // 4. MANAGER DASHBOARD

@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Req } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Req, UseInterceptors } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody, ApiParam } from '@nestjs/swagger';
+import { CacheInterceptor } from '@nestjs/cache-manager';
 import { MenuItemsService } from './menu-items.service';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { AuthGuard } from '../auth/auth.guard';
@@ -52,6 +53,7 @@ export class MenuItemsController {
   }
 
   // ─── PUBLIC: LIST ALL ─────────────────────────────────────────────────────
+  @UseInterceptors(CacheInterceptor)
   @Get()
   @ApiOperation({
     summary: 'List all menu items',
@@ -67,6 +69,7 @@ export class MenuItemsController {
   }
 
   // ─── PUBLIC: BY RESTAURANT ────────────────────────────────────────────────
+  @UseInterceptors(CacheInterceptor)
   @Get('restaurant/:restaurantId')
   @ApiOperation({
     summary: 'Get menu by restaurant',
@@ -84,6 +87,7 @@ export class MenuItemsController {
   }
 
   // ─── PUBLIC: GET ONE ──────────────────────────────────────────────────────
+  @UseInterceptors(CacheInterceptor)
   @Get(':id')
   @ApiOperation({
     summary: 'Get menu item details',

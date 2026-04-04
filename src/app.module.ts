@@ -17,6 +17,7 @@ import { DeliveryModule } from './delivery/delivery.module';
 import { PaymentsModule } from './payments/payments.module';
 import { WalletsModule } from './wallets/wallets.module';
 import { EventsGateway } from './events/events.gateway';
+
 import { EventsModule } from './events/events.module';
 import { ReviewsModule } from './reviews/reviews.module';
 import { ReferralsModule } from './referrals/referrals.module';
@@ -26,6 +27,8 @@ import { PartnerRequestsModule } from './partner-requests/partner-requests.modul
 import { CouponsModule } from './coupons/coupons.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { BullModule } from '@nestjs/bullmq';
+import { CacheModule } from '@nestjs/cache-manager';
+import { createKeyv } from '@keyv/redis';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import Redis, { RedisOptions } from 'ioredis';
 
@@ -72,6 +75,19 @@ function getRedisOptions(redisUrl?: string): RedisOptions {
             ...getRedisOptions(configService.get<string>('REDIS_URL')),
             maxRetriesPerRequest: null,
           },
+        };
+      },
+    }),
+    CacheModule.registerAsync({
+      isGlobal: true,
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => {
+        const redisUrl = configService.get<string>('REDIS_URL') || 'redis://127.0.0.1:6379';
+        return {
+          // store expects a keyv adapter or similar in v6; using createKeyv is correct for @keyv/redis
+          store: createKeyv(redisUrl),
+          ttl: 300000, // 5 minutes global default
         };
       },
     }),

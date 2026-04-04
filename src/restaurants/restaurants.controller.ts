@@ -1,5 +1,6 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Req, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Req, Query, UseInterceptors } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiBody, ApiParam, ApiQuery } from '@nestjs/swagger';
+import { CacheInterceptor } from '@nestjs/cache-manager';
 import { RestaurantsService } from './restaurants.service';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
@@ -41,6 +42,7 @@ export class RestaurantsController {
   constructor(private readonly restaurantsService: RestaurantsService) { }
 
   // ─── PUBLIC: SEARCH ───────────────────────────────────────────────────────
+  @UseInterceptors(CacheInterceptor)
   @Get('search')
   @ApiOperation({
     summary: 'Search restaurants & dishes with advanced sorting',
@@ -95,6 +97,7 @@ export class RestaurantsController {
   }
 
   // ─── PUBLIC: LIST ALL ─────────────────────────────────────────────────────
+  @UseInterceptors(CacheInterceptor)
   @Get()
   @ApiOperation({
     summary: 'List all restaurants',
@@ -152,6 +155,7 @@ export class RestaurantsController {
   }
 
   // ─── PUBLIC: GET ONE ──────────────────────────────────────────────────────
+  @UseInterceptors(CacheInterceptor)
   @Get(':id')
   @ApiOperation({
     summary: 'Get restaurant details',
