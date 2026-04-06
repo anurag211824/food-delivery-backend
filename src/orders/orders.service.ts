@@ -206,6 +206,11 @@ export class OrdersService {
 
     if (!order) throw new NotFoundException("Order not found");
 
+    // Safety Guard: If already in this status, just return (prevents duplicate dispatch chains)
+    if (order.status === status) {
+      return order;
+    }
+
     if (actor.role !== Role.ADMIN && order.restaurant.managerId !== actor.id) {
       throw new ForbiddenException("You do not have permission to manage this restaurant")
     }
@@ -252,8 +257,11 @@ export class OrdersService {
       body = 'The restaurant has finished preparing your order. Assigning a delivery partner...';
       
       // 🔥 TRIGGER AUTO-DISPATCH 🔥
-      this.orderQueue.add('dispatch-order', { orderId: orderId, ignoredDriverIds: [] })
-        .catch(e => console.error('Failed to trigger auto-dispatch', e));
+      this.orderQueue.add(
+        'dispatch-order', 
+        { orderId: orderId, ignoredDriverIds: [], attemptCount: 0 },
+        { jobId: `dispatch-${orderId}`, removeOnComplete: true }
+      ).catch(e => console.error('Failed to trigger auto-dispatch', e));
 
     } else if (status === 'ON_THE_WAY') {
       title = 'Out for Delivery! 🛵';

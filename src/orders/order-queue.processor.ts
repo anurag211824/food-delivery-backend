@@ -154,11 +154,11 @@ export class OrderQueueProcessor extends WorkerHost {
             this.logger.debug(`Driver ${closestDriverId} is no longer ONLINE. Removing from geo index and retrying.`);
             // Clean up stale entry in Redis
             await this.redis.zrem('driver_locations', closestDriverId);
-            // Retry immediately with this driver added to ignored list
+            // Retry immediately (reuse attempt count, but new jobId)
             await this.orderQueue.add(
                 'dispatch-order',
                 { orderId, ignoredDriverIds: [...ignoredDriverIds, closestDriverId], attemptCount },
-                { delay: 0 },
+                { jobId: `dispatch-${orderId}-${attemptCount}-retry`, delay: 0 },
             );
             return;
         }
@@ -219,7 +219,7 @@ export class OrderQueueProcessor extends WorkerHost {
         await this.orderQueue.add(
             'dispatch-order',
             { orderId, ignoredDriverIds, attemptCount },
-            { delay: 0 } 
+            { jobId: `dispatch-${orderId}-${attemptCount}-retry`, delay: 0 } 
         );
     }
 
@@ -228,7 +228,7 @@ export class OrderQueueProcessor extends WorkerHost {
         await this.orderQueue.add(
             'dispatch-order',
             { orderId, ignoredDriverIds, attemptCount: currentAttempt + 1 },
-            { delay: 60000 },
+            { jobId: `dispatch-${orderId}-${currentAttempt + 1}`, delay: 60000 },
         );
     }
 
