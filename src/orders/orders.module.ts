@@ -7,6 +7,7 @@ import { EventsModule } from '../events/events.module';
 import { CouponsModule } from '../coupons/coupons.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { OrderQueueProcessor } from './order-queue.processor';
+import { OrderCleanupCron } from './order-cleanup.cron';
 
 @Module({
   imports: [
@@ -15,6 +16,6 @@ import { OrderQueueProcessor } from './order-queue.processor';
     }),
     WalletsModule, EventsModule, CouponsModule, NotificationsModule],
   controllers: [OrdersController],
-  providers: [OrdersService, OrderQueueProcessor],
+  providers: [OrdersService, OrderQueueProcessor, OrderCleanupCron],
 })
 export class OrdersModule { }

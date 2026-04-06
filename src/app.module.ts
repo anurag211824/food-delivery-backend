@@ -31,6 +31,7 @@ import { CacheModule } from '@nestjs/cache-manager';
 import { RedisModule } from './redis/redis.module';
 import { createKeyv } from '@keyv/redis';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import Redis, { RedisOptions } from 'ioredis';
 
 function getRedisOptions(redisUrl?: string): RedisOptions {
@@ -92,6 +93,7 @@ function getRedisOptions(redisUrl?: string): RedisOptions {
         };
       },
     }),
+    ScheduleModule.forRoot(),
     RedisModule, AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule, DeliveryModule, PaymentsModule, WalletsModule, EventsModule, ReviewsModule, ReferralsModule, AppConfigModule, AdminModule, PartnerRequestsModule, CouponsModule, NotificationsModule],
   controllers: [AppController],
   providers: [

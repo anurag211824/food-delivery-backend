@@ -176,6 +176,15 @@ export class OrdersService {
       );
     }
 
+    // ─── Step 7b: Safety net — cancel orders the restaurant ignores ──────
+    // If the order is still in PLACED after 10 minutes (restaurant never
+    // accepted/refused), auto-cancel it. This covers ALL payment modes.
+    await this.orderQueue.add(
+      'cancel-stale-placed-order',
+      { orderId: order.id },
+      { delay: 10 * 60 * 1000 }, // 10 minutes
+    );
+
     return order;
   }
 

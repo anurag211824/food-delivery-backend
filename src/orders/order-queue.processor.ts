@@ -1,6 +1,6 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
 import { Job, Queue } from 'bullmq';
-import { Inject, Logger } from '@nestjs/common';
+import { Inject, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsGateway } from '../events/events.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -15,7 +15,7 @@ const MAX_DISPATCH_ATTEMPTS = 20;
 const MAX_RADIUS_KM = 15;
 
 @Processor('orders')
-export class OrderQueueProcessor extends WorkerHost {
+export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
     private readonly logger = new Logger(OrderQueueProcessor.name);
 
     constructor(
@@ -27,6 +27,60 @@ export class OrderQueueProcessor extends WorkerHost {
         @Inject(REDIS_CLIENT) private readonly redis: Redis,
     ) {
         super();
+    }
+
+    // ── Startup: Clean up any orders stuck in PLACED from before restart ───
+    async onModuleInit() {
+        const cutoff = new Date(Date.now() - 10 * 60 * 1000); // 10 minutes ago
+
+        const staleOrders = await this.prisma.order.findMany({
+            where: {
+                status: 'PLACED',
+                placedAt: { lt: cutoff },
+            },
+            include: { restaurant: true },
+        });
+
+        if (staleOrders.length === 0) return;
+
+        this.logger.warn(`Found ${staleOrders.length} stale PLACED orders. Cleaning up...`);
+
+        for (const order of staleOrders) {
+            try {
+                const reason = 'SYSTEM_TIMEOUT: Restaurant did not respond in time (recovered on startup).';
+
+                await this.prisma.order.update({
+                    where: { id: order.id },
+                    data: { status: 'CANCELLED', cancellationReason: reason },
+                });
+
+                if (order.isPaid) {
+                    await this.walletsService.addFunds(
+                        order.customerId,
+                        order.totalAmount,
+                        `REFUND_AUTO_CANCEL:${order.id}`,
+                    );
+                    await this.prisma.refund.create({
+                        data: {
+                            orderId: order.id,
+                            amount: order.totalAmount,
+                            reason: `AUTO_CANCEL_REFUND: ${reason}`,
+                            status: 'PROCESSED',
+                            isAuto: true,
+                        },
+                    });
+                }
+
+                this.eventsGateway.emitOrderStatusChange(order.id, 'CANCELLED');
+                this.eventsGateway.cleanupOrderRoom(order.id);
+
+                this.logger.log(`Startup cleanup: cancelled stale order ${order.id} (placed ${order.placedAt.toISOString()})`);
+            } catch (err) {
+                this.logger.error(`Failed to cleanup stale order ${order.id}:`, err);
+            }
+        }
+
+        this.logger.log(`Startup cleanup complete. ${staleOrders.length} stale orders cancelled.`);
     }
 
     async process(job: Job<any, any, string>): Promise<any> {
@@ -68,6 +122,10 @@ export class OrderQueueProcessor extends WorkerHost {
 
         if (job.name === 'check-dispatch-timeout') {
             await this.handleDispatchTimeout(job);
+        }
+
+        if (job.name === 'cancel-stale-placed-order') {
+            await this.handleStalePlacedOrder(job);
         }
     }
 
@@ -221,6 +279,77 @@ export class OrderQueueProcessor extends WorkerHost {
             { orderId, ignoredDriverIds, attemptCount },
             { jobId: `dispatch-${orderId}-${attemptCount}-retry`, delay: 0 } 
         );
+    }
+
+    // ── Handler: Cancel orders the restaurant never accepted ──────────────
+    private async handleStalePlacedOrder(job: Job) {
+        const { orderId } = job.data;
+
+        const order = await this.prisma.order.findUnique({
+            where: { id: orderId },
+            include: { restaurant: true },
+        });
+
+        if (!order) {
+            this.logger.debug(`Stale-check: Order ${orderId} not found, skipping.`);
+            return;
+        }
+
+        // Only cancel if it's STILL in PLACED (restaurant never accepted/refused)
+        if (order.status !== 'PLACED') {
+            this.logger.debug(`Stale-check: Order ${orderId} is now ${order.status}, no action needed.`);
+            return;
+        }
+
+        const reason = 'SYSTEM_TIMEOUT: Restaurant did not respond within 10 minutes.';
+
+        await this.prisma.order.update({
+            where: { id: orderId },
+            data: {
+                status: 'CANCELLED',
+                cancellationReason: reason,
+            },
+        });
+
+        // Auto-refund if order was paid (wallet, UPI, card, etc.)
+        if (order.isPaid) {
+            await this.walletsService.addFunds(
+                order.customerId,
+                order.totalAmount,
+                `REFUND_AUTO_CANCEL:${order.id}`,
+            );
+            await this.prisma.refund.create({
+                data: {
+                    orderId: order.id,
+                    amount: order.totalAmount,
+                    reason: `AUTO_CANCEL_REFUND: ${reason}`,
+                    status: 'PROCESSED',
+                    isAuto: true,
+                },
+            });
+        }
+
+        // Real-time + Push notifications
+        this.eventsGateway.emitOrderStatusChange(order.id, 'CANCELLED');
+        this.eventsGateway.cleanupOrderRoom(order.id);
+
+        this.notificationsService.send(
+            order.customerId,
+            'Order Cancelled ❌',
+            'The restaurant didn\'t respond to your order in time. Any payment has been refunded to your wallet.',
+            'ORDER_UPDATE',
+            { orderId: order.id, status: 'CANCELLED' },
+        ).catch(e => this.logger.error('Failed to send stale-order cancellation notification', e));
+
+        this.notificationsService.send(
+            order.restaurant.managerId,
+            'Missed Order ⚠️',
+            `Order #${order.id.slice(-6)} was auto-cancelled because it wasn't accepted within 10 minutes.`,
+            'ORDER_UPDATE',
+            { orderId: order.id, status: 'CANCELLED' },
+        ).catch(e => this.logger.error('Failed to send restaurant missed-order notification', e));
+
+        this.logger.log(`Order ${orderId} auto-cancelled: restaurant did not respond within 10 minutes.`);
     }
 
     // ── Helper: Schedule a retry with incremented attempt count ───────────
