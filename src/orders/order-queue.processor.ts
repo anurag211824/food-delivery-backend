@@ -244,18 +244,19 @@ export class OrderQueueProcessor extends WorkerHost {
             },
         });
 
-        // Auto-refund if paid via wallet
-        if (order.paymentMode === 'WALLET' && order.isPaid) {
+        // Auto-refund to internal wallet if the order was paid (regardless of payment mode)
+        // This provides 'Instant Credit' so users can try again immediately.
+        if (order.isPaid) {
             await this.walletsService.addFunds(
                 order.customerId,
                 order.totalAmount,
-                `REFUND:${order.id}`,
+                `REFUND_AUTO_CANCEL:${order.id}`,
             );
             await this.prisma.refund.create({
                 data: {
                     orderId: order.id,
                     amount: order.totalAmount,
-                    reason,
+                    reason: `AUTO_CANCEL_REFUND: ${reason}`,
                     status: 'PROCESSED',
                     isAuto: true,
                 },
