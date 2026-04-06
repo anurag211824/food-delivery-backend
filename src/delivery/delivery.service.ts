@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
@@ -7,6 +7,8 @@ import { DriverStatus } from '@prisma/client';
 import { EventsGateway } from '../events/events.gateway';
 import { WalletsService } from '../wallets/wallets.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../redis/redis.provider';
 
 @Injectable()
 export class DeliveryService {
@@ -16,6 +18,7 @@ export class DeliveryService {
     private readonly walletsService: WalletsService,
     private readonly notificationsService: NotificationsService,
     @InjectQueue('orders') private readonly orderQueue: Queue,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) { }
 
   async createProfile(userId: string, dto: CreateDeliveryDto) {
@@ -64,10 +67,17 @@ export class DeliveryService {
     if (!profile) {
       throw new NotFoundException("Driver profile not found. Please setup profile first.")
     }
-    return this.prisma.driverProfile.update({
+    const updatedProfile = await this.prisma.driverProfile.update({
       where: { id: profile.id },
       data: { status: status }
-    })
+    });
+
+    // If OFFLINE or BUSY — remove from geo index so they don't get dispatched
+    if (status !== 'ONLINE') {
+      await this.redis.zrem('driver_locations', userId);
+    }
+
+    return updatedProfile;
   }
 
   // Phase 2: Order Assignment and Completion
@@ -77,17 +87,24 @@ export class DeliveryService {
     if (!profile) throw new NotFoundException('Driver profile not found.');
     if (profile.status !== 'ONLINE') throw new ConflictException('You must be ONLINE to see orders.');
 
-    // 1. Safety check: Ensure the driver has a fresh location ping (within last 10 mins)
-    const TEN_MINUTES_AGO = new Date(Date.now() - 10 * 60 * 1000);
-    
-    if (!profile.currentLat || !profile.currentLng || profile.updatedAt < TEN_MINUTES_AGO) {
+    // 1. Fetch current GPS location from Redis (the single source of truth for live location)
+    const [pos, isActive] = await Promise.all([
+      this.redis.geopos('driver_locations', userId),
+      this.redis.exists(`driver_last_seen:${userId}`)
+    ]);
+
+    if (!pos || !pos[0] || !isActive) {
       throw new BadRequestException('Your live location is stale or unknown. Please ensure the app is open and location is updating.');
     }
+
+    const [currentLngStr, currentLatStr] = pos[0];
+    const currentLat = parseFloat(currentLatStr);
+    const currentLng = parseFloat(currentLngStr);
 
     const availableOrders = await this.prisma.order.findMany({
       where: {
         status: 'READY',
-        driverId: null, // Only orders without a driver
+        driverId: null,
       },
       include: {
         restaurant: {
@@ -100,19 +117,17 @@ export class DeliveryService {
       orderBy: { placedAt: 'asc' }
     });
 
-    // 2. Geo-Fencing Filter (The "Uber" Logic)
-    // Only show orders where the Restaurant (pickup point) is within 10km of the Driver
+    // 2. Geo-Fencing Filter
     const MAX_DISTANCE_KM = 10;
     
     return availableOrders.filter(order => {
       const distance = this.calculateDistance(
-        profile.currentLat!,
-        profile.currentLng!,
+        currentLat,
+        currentLng,
         order.restaurant.lat,
         order.restaurant.lng
       );
       
-      // We can also attach the straight-line distance so the frontend can sort or display it
       (order as any).distanceToRestaurantKm = parseFloat(distance.toFixed(2));
       
       return distance <= MAX_DISTANCE_KM;
@@ -150,6 +165,9 @@ export class DeliveryService {
       where: { id: profile.id },
       data: { status: 'BUSY' }
     });
+
+    // Remove from Redis geo index (BUSY drivers shouldn't be dispatched)
+    await this.redis.zrem('driver_locations', userId);
 
     // 🚀 Real-time: Status update to all watchers
     this.eventsGateway.emitOrderStatusChange(orderId, 'ON_THE_WAY');
@@ -206,13 +224,16 @@ export class DeliveryService {
     });
 
     // Increment totalDeliveries counter and make driver available again
-    await this.prisma.driverProfile.update({
+    const updatedDriver = await this.prisma.driverProfile.update({
       where: { id: profile.id },
       data: { 
         totalDeliveries: { increment: 1 },
         status: 'ONLINE',
       },
     });
+
+    // Note: Geo index re-entry will be handled by the next WebSocket location ping.
+    // This ensures we always use fresh coordinates.
 
     // 💰 Credit driver earnings: deliveryCharge + driverTip → driver's wallet
     const driverEarnings = order.deliveryCharge + order.driverTip;

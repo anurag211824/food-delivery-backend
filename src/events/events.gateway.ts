@@ -12,6 +12,9 @@ import { Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { auth } from '../lib/auth';
 import { fromNodeHeaders } from 'better-auth/node';
+import { Inject } from '@nestjs/common';
+import Redis from 'ioredis';
+import { REDIS_CLIENT } from '../redis/redis.provider';
 
 // Basic driver location payload
 interface LocationPayload {
@@ -32,7 +35,10 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
 
-  constructor(private prisma: PrismaService) { }
+  constructor(
+    private prisma: PrismaService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+  ) { }
 
   // ─── 1. CONNECTION HANDLING ──────────────────────────────────────────────
   async handleConnection(client: Socket) {
@@ -126,12 +132,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Broadcast this location to the specific room (customer + restaurant)
     this.server.to(roomName).emit('order_location_update', payload);
 
-    // Persist driver's latest GPS to DB (fire-and-forget for speed)
-    if (payload.driverProfileId) {
-      this.prisma.driverProfile.update({
-        where: { id: payload.driverProfileId },
-        data: { currentLat: payload.lat, currentLng: payload.lng },
-      }).catch((err) => this.logger.error('Failed to persist driver location:', err));
+    // Update Redis Geo index for fast nearest-driver lookups
+    const user = client.data?.user;
+    if (user?.id) {
+      // 1. Update the coordinate in the geo index
+      this.redis.geoadd('driver_locations', payload.lng, payload.lat, user.id)
+        .catch((err) => this.logger.error('Failed to update Redis geo index:', err));
+
+      // 2. Refresh a keep-alive key (TTL 10 mins) to track if the driver is still active
+      //    This replaces the 'updatedAt' database timestamp for location checks.
+      this.redis.setex(`driver_last_seen:${user.id}`, 600, 'active')
+        .catch((err) => this.logger.error('Failed to update driver keep-alive:', err));
     }
   }
 
