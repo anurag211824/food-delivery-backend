@@ -4,6 +4,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import { RedisIoAdapter } from './redis/redis.io-adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule,{logger: ['error', 'warn','log','debug']});
@@ -24,6 +26,12 @@ async function bootstrap() {
       transform: true,
     }),
   );
+
+  // Initialize Redis IoAdapter for WebSocket scaling
+  const configService = app.get(ConfigService);
+  const redisIoAdapter = new RedisIoAdapter(app, configService);
+  await redisIoAdapter.connectToRedis();
+  app.useWebSocketAdapter(redisIoAdapter);
 
   // 3. Swagger Contract Definition
   const config = new DocumentBuilder()

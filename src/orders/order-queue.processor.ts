@@ -35,7 +35,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
 
         const staleOrders = await this.prisma.order.findMany({
             where: {
-                status: 'PLACED',
+                status: { in: ['PLACED', 'READY'] },
                 placedAt: { lt: cutoff },
             },
             include: { restaurant: true },
@@ -143,6 +143,14 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
             return;
         }
 
+        // 🚀 NEW: Freshness Guard (Cancel orders that weren't picked up for 1 hour)
+        const orderAgeMinutes = (Date.now() - new Date(order.placedAt).getTime()) / (1000 * 60);
+        if (orderAgeMinutes > 60) {
+            this.logger.warn(`Order ${orderId} is too old (${Math.round(orderAgeMinutes)} min). Auto-cancelling.`);
+            await this.autoCancelOrder(order);
+            return;
+        }
+
         // ── Guard: Check if we've exceeded max attempts (20 min timeout) ─────
         if (attemptCount >= MAX_DISPATCH_ATTEMPTS) {
             this.logger.warn(`Order ${orderId} exceeded ${MAX_DISPATCH_ATTEMPTS} dispatch attempts. Auto-cancelling.`);
@@ -173,14 +181,26 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
         }
 
         // Filter out ignored drivers (already pinged/declined)
-        const candidateIds = nearbyDriverIds.filter(id => !ignoredDriverIds.includes(id));
+        let candidateIds = nearbyDriverIds.filter(id => !ignoredDriverIds.includes(id));
+
+        // 🚀 NEW: Filter out drivers who explicitly declined this order via the REST API
+        if (candidateIds.length > 0) {
+            const declineChecks = await Promise.all(
+                candidateIds.map(id => this.redis.sismember(`declined_orders:${id}`, orderId))
+            );
+            candidateIds = candidateIds.filter((_, index) => declineChecks[index] === 0);
+        }
 
         if (candidateIds.length === 0) {
             this.logger.warn(
                 `No available drivers within ${MAX_RADIUS_KM}km for order ${orderId} (attempt ${attemptCount + 1}/${MAX_DISPATCH_ATTEMPTS}). Re-trying in 1 minute.`
             );
             // Clear ignored list on retry so previously skipped drivers get another chance
-            await this.scheduleRetry(orderId, [], attemptCount);
+            await this.orderQueue.add(
+                'dispatch-order',
+                { orderId, ignoredDriverIds: [], attemptCount: attemptCount + 1 },
+                { jobId: `dispatch-${orderId}-${attemptCount + 1}`, delay: 60000 },
+            );
             return;
         }
 

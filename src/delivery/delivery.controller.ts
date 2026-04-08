@@ -72,6 +72,28 @@ export class DeliveryController {
     return this.deliveryService.acceptOrder(req.user.id, orderId);
   }
 
+  @Post('orders/:id/cancel')
+  @ApiOperation({ summary: "Cancel an accepted delivery order before pickup" })
+  @ApiParam({ name: 'id', description: 'Order ID' })
+  @ApiResponse({ status: 200, description: "Order released and driver returned to ONLINE" })
+  async cancelOrder(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') orderId: string,
+  ) {
+    return this.deliveryService.cancelOrder(req.user.id, orderId);
+  }
+
+  @Post('orders/:id/pickup')
+  @ApiOperation({ summary: "Confirm pickup of a delivery order" })
+  @ApiParam({ name: 'id', description: 'Order ID' })
+  @ApiResponse({ status: 200, description: "Order picked up by driver" })
+  async pickupOrder(
+    @Req() req: AuthenticatedRequest,
+    @Param('id') orderId: string,
+  ) {
+    return this.deliveryService.pickupOrder(req.user.id, orderId);
+  }
+
   @Post('orders/:id/complete')
   @ApiOperation({ summary: "Complete a delivery using customer's OTP" })
   @ApiParam({ name: 'id', description: 'Order ID' })
@@ -107,6 +129,29 @@ export class DeliveryController {
   @ApiResponse({ status: 200, description: 'Active delivery order or null' })
   async getMyCurrentOrder(@Req() req: AuthenticatedRequest) {
     return this.deliveryService.getMyCurrentOrder(req.user.id);
+  }
+
+  // ─── BACKGROUND LOCATION SYNC ──────────────────────────────────────────
+  @Post('sync-location')
+  @ApiOperation({
+    summary: 'Sync driver location via REST loop',
+    description: 'Used by the driver app background tasks when the socket may be disconnected.',
+  })
+  @ApiBody({
+    schema: {
+      type: "object",
+      properties: {
+        lat: { type: 'number' },
+        lng: { type: 'number' },
+        orderId: { type: 'string', description: 'Optional orderId if actively tracking' },
+      },
+    }
+  })
+  async syncLocation(
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { lat: number, lng: number, orderId?: string }
+  ) {
+    return this.deliveryService.syncLocation(req.user.id, body.lat, body.lng, body.orderId);
   }
 
   // ─── MY EARNINGS ───────────────────────────────────────────────────────

@@ -151,6 +151,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   /** Broadcast order status change to all watchers of an order */
   emitOrderStatusChange(orderId: string, newStatus: string) {
     const roomName = `order_${orderId}`;
+    this.logger.log(`[Status Update] Order ${orderId} -> ${newStatus}`);
     this.server.to(roomName).emit('order_status_update', {
       orderId,
       status: newStatus,

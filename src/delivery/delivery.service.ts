@@ -85,9 +85,10 @@ export class DeliveryService {
   async getAvailableOrders(userId: string) {
     const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
     if (!profile) throw new NotFoundException('Driver profile not found.');
-    if (profile.status !== 'ONLINE') throw new ConflictException('You must be ONLINE to see orders.');
+    if (profile.status !== 'ONLINE') {
+      return []; // Return empty list instead of throwing Conflict (smoother for UI)
+    }
 
-    // 1. Fetch current GPS location from Redis (the single source of truth for live location)
     const [pos, isActive] = await Promise.all([
       this.redis.geopos('driver_locations', userId),
       this.redis.exists(`driver_last_seen:${userId}`)
@@ -101,10 +102,16 @@ export class DeliveryService {
     const currentLat = parseFloat(currentLatStr);
     const currentLng = parseFloat(currentLngStr);
 
+    // 1.5 Fetch IDs of orders this driver has already declined to filter them out
+    const declinedOrderIds = await this.redis.smembers(`declined_orders:${userId}`);
+
     const availableOrders = await this.prisma.order.findMany({
       where: {
         status: 'READY',
         driverId: null,
+        id: { notIn: declinedOrderIds },
+        // Only show orders placed in the last 30 minutes to keep list clean
+        placedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) }
       },
       include: {
         restaurant: {
@@ -112,15 +119,18 @@ export class DeliveryService {
         },
         customer: {
           select: { name: true, phoneNumber: true }
+        },
+        _count: {
+          select: { items: true }
         }
       },
-      orderBy: { placedAt: 'asc' }
+      orderBy: { placedAt: 'desc' }
     });
 
-    // 2. Geo-Fencing Filter
-    const MAX_DISTANCE_KM = 10;
+    // 2. Geo-Fencing Filter - Align with OrderQueueProcessor (15km)
+    const MAX_DISTANCE_KM = 15;
     
-    return availableOrders.filter(order => {
+    return availableOrders.map(order => {
       const distance = this.calculateDistance(
         currentLat,
         currentLng,
@@ -128,10 +138,12 @@ export class DeliveryService {
         order.restaurant.lng
       );
       
-      (order as any).distanceToRestaurantKm = parseFloat(distance.toFixed(2));
-      
-      return distance <= MAX_DISTANCE_KM;
-    });
+      return {
+        ...order,
+        distanceToRestaurantKm: parseFloat(distance.toFixed(2)),
+        itemCount: order._count.items
+      };
+    }).filter(order => order.distanceToRestaurantKm <= MAX_DISTANCE_KM);
   }
 
   async acceptOrder(userId: string, orderId: string) {
@@ -146,8 +158,16 @@ export class DeliveryService {
       include: { restaurant: true },
     });
     if (!order) throw new NotFoundException('Order not found.');
+    if (order.status === 'CANCELLED') {
+      throw new ConflictException('This order has been cancelled and is no longer available.');
+    }
     if (order.status !== 'READY' || order.driverId !== null) {
       throw new ConflictException('Order is no longer available.');
+    }
+
+    // Guard: Prevent stacking multiple active orders
+    if (profile.status === DriverStatus.BUSY) {
+      throw new ConflictException('You are already on another delivery. Finish it first!');
     }
 
     // Atomic assignment
@@ -155,8 +175,6 @@ export class DeliveryService {
       where: { id: orderId },
       data: {
         driverId: profile.id,
-        status: 'ON_THE_WAY',
-        pickedUpAt: new Date(),
       }
     });
 
@@ -169,8 +187,7 @@ export class DeliveryService {
     // Remove from Redis geo index (BUSY drivers shouldn't be dispatched)
     await this.redis.zrem('driver_locations', userId);
 
-    // 🚀 Real-time: Status update to all watchers
-    this.eventsGateway.emitOrderStatusChange(orderId, 'ON_THE_WAY');
+    // Removed status change emission because status does not change yet.
 
     // 🚀 Real-time: Auto-join driver into the order tracking room
     this.eventsGateway.joinUserToOrderRoom(userId, orderId);
@@ -189,8 +206,47 @@ export class DeliveryService {
       'Driver Assigned! 🛵',
       `${profile.user.name} is picking up your order from ${order.restaurant.name}.`,
       'ORDER_UPDATE',
-      { orderId, status: 'ON_THE_WAY' }
+      { orderId, status: order.status }
     ).catch(e => console.error('Failed to send driver assigned push', e));
+
+    return updatedOrder;
+  }
+
+  async pickupOrder(userId: string, orderId: string) {
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+      include: { user: { select: { name: true, phoneNumber: true } } }
+    });
+    if (!profile) throw new NotFoundException('Driver profile not found.');
+
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found.');
+
+    if (order.driverId !== profile.id) {
+      throw new ForbiddenException('You are not assigned to this order.');
+    }
+
+    if (order.status !== 'READY' && order.status !== 'ACCEPTED' && order.status !== 'PREPARING') {
+      throw new ConflictException(`Order must be PREPARING or READY to pick up. Current status: ${order.status}`);
+    }
+
+    const updatedOrder = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        status: 'ON_THE_WAY',
+        pickedUpAt: new Date(),
+      }
+    });
+
+    this.eventsGateway.emitOrderStatusChange(orderId, 'ON_THE_WAY');
+
+    this.notificationsService.send(
+      order.customerId,
+      'Order On The Way! 🛵',
+      `${profile.user.name} has picked up your order and is on the way. Give OTP ${order.otp} to the rider for a safe delivery.`,
+      'ORDER_UPDATE',
+      { orderId, status: 'ON_THE_WAY' }
+    ).catch(e => console.error('Failed to send order on the way push', e));
 
     return updatedOrder;
   }
@@ -281,7 +337,82 @@ export class DeliveryService {
       { delay: 0 },
     );
 
+    // Track decline in Redis so it's hidden from the available orders list
+    await this.redis.sadd(`declined_orders:${userId}`, orderId);
+    // Expire the decline tracking after 1 hour (orders are likely cancelled by then anyway)
+    await this.redis.expire(`declined_orders:${userId}`, 3600);
+
     return { message: 'Order declined. It will be offered to the next available driver.' };
+  }
+
+  // ─── DRIVER CANCEL ACTIVE ORDER ───────────────────────────────────
+  async cancelOrder(userId: string, orderId: string) {
+    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    if (!profile) throw new NotFoundException('Driver profile not found.');
+
+    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) throw new NotFoundException('Order not found.');
+
+    if (order.driverId !== profile.id) {
+      throw new ForbiddenException('You are not assigned to this order.');
+    }
+
+    // You can only cancel if you haven't picked it up yet (standard policy)
+    if (order.status !== 'READY' && order.status !== 'ACCEPTED') {
+      throw new ConflictException(`Cannot cancel order in status: ${order.status}`);
+    }
+
+    // Release the order
+    await this.prisma.$transaction([
+      this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          driverId: null,
+          status: 'READY',
+        }
+      }),
+      this.prisma.driverProfile.update({
+        where: { id: profile.id },
+        data: { status: 'ONLINE' }
+      })
+    ]);
+
+    // Re-dispatch into the queue immediately
+    await this.orderQueue.add(
+      'dispatch-order',
+      { orderId, ignoredDriverIds: [userId] }, // Skip this driver during re-dispatch
+      { delay: 0 }
+    );
+
+    this.eventsGateway.emitOrderStatusChange(orderId, 'READY');
+
+    // 🚀 NEW: Notify Restaurant Manager
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { id: order.restaurantId }
+    });
+    if (restaurant) {
+      this.notificationsService.send(
+        restaurant.managerId,
+        'Rider Released Order ⚠️',
+        `The rider assigned to order #${orderId.slice(-6)} is no longer available. We are assigning a new one now.`,
+        'ORDER_UPDATE',
+        { orderId, status: 'READY' }
+      ).catch(e => console.error('Failed to notify restaurant of rider release', e));
+
+      // Update restaurant live dashboard
+      this.eventsGateway.server.to(`restaurant_${restaurant.id}`).emit('rider_released', { orderId });
+    }
+
+    // 🚀 NEW: Notify Customer
+    this.notificationsService.send(
+      order.customerId,
+      'Rider Update 🛵',
+      'Your assigned rider is no longer available. We are looking for a replacement now!',
+      'ORDER_UPDATE',
+      { orderId, status: 'READY' }
+    ).catch(e => console.error('Failed to notify customer of rider release', e));
+
+    return { message: 'Delivery cancelled and released for other drivers.' };
   }
 
   // ─── GET MY CURRENT ORDER ──────────────────────────────────────────────
@@ -292,7 +423,7 @@ export class DeliveryService {
     const activeOrder = await this.prisma.order.findFirst({
       where: {
         driverId: profile.id,
-        status: 'ON_THE_WAY',
+        status: { in: ['READY', 'PICKED_UP', 'ON_THE_WAY'] },
       },
       include: {
         restaurant: {
@@ -308,10 +439,18 @@ export class DeliveryService {
     });
 
     if (!activeOrder) {
+      // Self-healing: If driver is stuck in BUSY but has no orders, reset them to ONLINE
+      if (profile.status === 'BUSY') {
+        console.log(`[Self-Healing] Driver ${userId} was stuck in BUSY with no active orders. Resetting to ONLINE.`);
+        await this.prisma.driverProfile.update({
+          where: { id: profile.id },
+          data: { status: 'ONLINE' }
+        });
+      }
       return { message: 'No active delivery at the moment.', order: null };
     }
 
-    return activeOrder;
+    return { order: activeOrder };
   }
 
   // ─── GET MY EARNINGS SUMMARY ───────────────────────────────────────────
@@ -386,7 +525,35 @@ export class DeliveryService {
     };
   }
 
-  // Helper function to calculate distance in km 
+  // ─── BACKGROUND LOCATION SYNC ──────────────────────────────────────────
+  async syncLocation(userId: string, lat: number, lng: number, orderId?: string) {
+    let profileId = await this.redis.get(`driver_profile:${userId}`);
+
+    if (!profileId) {
+      const profile = await this.prisma.driverProfile.findUnique({ where: { userId }, select: { id: true } });
+      if (!profile) throw new NotFoundException('Driver profile not found.');
+      profileId = profile.id;
+      await this.redis.set(`driver_profile:${userId}`, profileId, 'EX', 3600); // Cache for 1 hour
+    }
+
+    // 1. Update Redis index
+    await this.redis.geoadd('driver_locations', lng, lat, userId);
+    await this.redis.setex(`driver_last_seen:${userId}`, 600, 'active');
+
+    // 2. If an orderId is provided (or if tracking active delivery), emit via socket
+    if (orderId) {
+      this.eventsGateway.server.to(`order_${orderId}`).emit('order_location_update', {
+        orderId,
+        driverProfileId: profileId,
+        lat,
+        lng,
+      });
+    }
+
+    return { success: true };
+  }
+
+  // Helper function to calculate distance in km
   private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371; // Radius of the earth in km
     const dLat = this.deg2rad(lat2 - lat1);

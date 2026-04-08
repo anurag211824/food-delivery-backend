@@ -6,6 +6,7 @@ import { OrderStatus, Role } from '@prisma/client';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { BulkUpdateOrderStatusDto } from './dto/bulk-update-order-status.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -31,9 +32,15 @@ export class OrdersController {
   @ApiOperation({ summary: "Get Orders for managed restaurant (Manager Only)" })
   @UseGuards(RolesGuard)
   @Roles(Role.RESTAURANT_MANAGER)
-  async getRestaurantOrders(@Req() req: AuthenticatedRequest, @Query() dto: PaginationDto) {
+  async getRestaurantOrders(
+    @Req() req: AuthenticatedRequest, 
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: OrderStatus
+  ) {
     const user = req.user;
-    return this.ordersService.getRestaurantOrders(user.id, dto)
+    const dto: PaginationDto = { page: Number(page) || 1, limit: Number(limit) || 10 };
+    return this.ordersService.getRestaurantOrders(user.id, dto, status);
   }
 
   @Get('current')
@@ -74,6 +81,18 @@ export class OrdersController {
     @Req() req: AuthenticatedRequest
   ) {
     return this.ordersService.updateStatus(id, dto.status, req.user);
+  }
+
+  @Patch('bulk-status')
+  @ApiOperation({ summary: 'Bulk update order status (Manager/Admin Only)' })
+  @ApiBody({ type: BulkUpdateOrderStatusDto })
+  @UseGuards(RolesGuard)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
+  async bulkUpdateStatus(
+    @Body() dto: BulkUpdateOrderStatusDto,
+    @Req() req: AuthenticatedRequest
+  ) {
+    return this.ordersService.bulkUpdateStatus(dto.orderIds, dto.status, req.user);
   }
 
   // ─── CUSTOMER CANCEL ────────────────────────────────────────────────────

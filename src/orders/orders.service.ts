@@ -298,20 +298,86 @@ export class OrdersService {
     return updatedOrder;
   }
 
+  async bulkUpdateStatus(orderIds: string[], status: OrderStatus, actor: Pick<User, 'id' | 'role'>) {
+    const results: any[] = [];
+    const errors: any[] = [];
+
+    // Process each order. We use a loop to ensure each order's individual 
+    // lifecycle (notifications, events, dispatch) is triggered correctly.
+    for (const orderId of orderIds) {
+      try {
+        const updated = await this.updateStatus(orderId, status, actor);
+        results.push(updated);
+      } catch (error) {
+        errors.push({
+          orderId,
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
+      }
+    }
+
+    if (errors.length > 0 && results.length === 0) {
+      throw new BadRequestException({
+        message: 'All bulk updates failed',
+        errors,
+      });
+    }
+
+    return {
+      successCount: results.length,
+      failCount: errors.length,
+      results,
+      errors: errors.length > 0 ? errors : undefined,
+    };
+  }
+
   async getOrderById(orderId: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
-        driver: true,
+        driver: {
+          include: {
+            user: {
+              select: { name: true, phoneNumber: true }
+            }
+          }
+        },
         items: {
           include: { menuItem: true }
         },
-        restaurant: true
+        restaurant: true,
+        customer: { 
+          select: { 
+            id: true, 
+            name: true, 
+            phoneNumber: true, 
+            email: true,
+            addresses: {
+              where: { isDefault: true },
+              take: 1
+            }
+          } 
+        }
       }
     });
+
     if (!order) throw new NotFoundException("Order not found");
 
-    return order;
+    // Flatten driver and address for easier frontend consumption
+    const customerAddress = order.customer.addresses[0] || null;
+    const driver = order.driver ? {
+      id: order.driver.id,
+      name: order.driver.user.name,
+      phone: order.driver.user.phoneNumber,
+      vehiclePlate: order.driver.vehiclePlate,
+      profilePic: order.driver.profilePic,
+    } : null;
+    
+    return {
+      ...order,
+      driver,
+      customerAddress
+    };
   }
 
   async getCurrentOrder(userId: string) {
@@ -340,7 +406,18 @@ export class OrdersService {
       throw new NotFoundException("No active order found");
     }
     
-    return currentOrder;
+    // Flatten driver info for easier frontend consumption
+    const driver = currentOrder.driver ? {
+      name: currentOrder.driver.user.name,
+      phone: currentOrder.driver.user.phoneNumber,
+      vehiclePlate: currentOrder.driver.vehiclePlate,
+      profilePic: currentOrder.driver.profilePic,
+    } : null;
+
+    return {
+      ...currentOrder,
+      driver
+    };
   }
 
   async getCustomerOrders(userId: string, dto: PaginationDto) {
@@ -369,16 +446,20 @@ export class OrdersService {
     return { data, meta: { total, page: pageNumber, limit: limitNumber, totalPages: Math.ceil(total / limitNumber) } };
   }
 
-  async getRestaurantOrders(managerId: string, dto: PaginationDto) {
+  async getRestaurantOrders(managerId: string, dto: PaginationDto, status?: OrderStatus) {
     const pageNumber = dto.page || 1;
     const limitNumber = dto.limit || 10;
     const skip = (pageNumber - 1) * limitNumber;
 
-    const where = {
+    const where: any = {
       restaurant: {
         managerId: managerId,
       }
     };
+
+    if (status) {
+      where.status = status;
+    }
 
     const [data, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -449,6 +530,9 @@ export class OrdersService {
         status: 'CANCELLED',
         cancellationReason: reason,
       },
+      include: {
+        driver: true,
+      }
     });
 
     // 2. Auto-refund if paid via wallet
@@ -471,10 +555,37 @@ export class OrdersService {
       });
     }
 
-    // 3. Emit real-time status update
+    // 3. Reset and notify assigned driver if any
+    if (order.driverId) {
+      // Set driver back to ONLINE
+      await this.prisma.driverProfile.update({
+        where: { id: order.driverId },
+        data: { status: 'ONLINE' }
+      });
+
+      const driverUserId = cancelledOrder.driver?.userId;
+      if (driverUserId) {
+        // Notify driver via Push
+        this.notificationsService.send(
+          driverUserId,
+          'Order VOIDED ❌',
+          `The active order #${order.id.slice(-6)} was cancelled by the customer/restaurant.`,
+          'ORDER_UPDATE',
+          { orderId: order.id, status: 'CANCELLED' }
+        ).catch(e => console.error('Failed to notify driver of cancellation', e));
+
+        // Notify driver via Socket to clear their screen
+        this.eventsGateway.server.to(`user_${driverUserId}`).emit('order_cancelled', {
+          orderId: order.id,
+          reason
+        });
+      }
+    }
+
+    // 4. Emit real-time status update to customer/others
     this.eventsGateway.emitOrderStatusChange(order.id, 'CANCELLED');
 
-    // 4. Send Push Notification
+    // 5. Send Push Notification to Customer
     this.notificationsService.send(
       order.customerId,
       'Order Cancelled ❌',
@@ -483,7 +594,7 @@ export class OrdersService {
       { orderId: order.id, status: 'CANCELLED' }
     ).catch(e => console.error('Failed to send order cancelled push notification', e));
 
-    // 5. Auto-cleanup the order tracking room
+    // 6. Auto-cleanup the order tracking room
     this.eventsGateway.cleanupOrderRoom(order.id);
 
     return cancelledOrder;

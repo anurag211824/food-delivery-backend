@@ -4,6 +4,7 @@ import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Restaurant, VegType } from '@prisma/client';
 import { SearchRestaurantsDto } from './dto/search-restaurants.dto';
+import { GetStatsDto, StatsPeriod } from './dto/get-stats.dto';
 import { PaginationDto } from 'src/common/pagination.dto';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
@@ -60,7 +61,6 @@ export class RestaurantsService {
     const limitNumber = limit || 10;
     const skip = (pageNumber - 1) * limitNumber;
 
-    // 1. Fetch matching menu items with their category and restaurant
     const items = await this.prisma.menuItem.findMany({
       where: {
         isAvailable: true,
@@ -91,7 +91,6 @@ export class RestaurantsService {
       }
     });
 
-    // 2. Filter by distance if user coordinates are provided (7km radius)
     let filteredItems = items;
     if (userLat && userLng) {
       filteredItems = items.filter(item => {
@@ -100,10 +99,9 @@ export class RestaurantsService {
       });
     }
 
-    // 3. Group by unique dish name (case-insensitive)
     const dishGroups = new Map<string, any[]>();
     for (const item of filteredItems) {
-      const normalizedName = item.name.trim(); // We use raw name for grouping but case-insensitive map keys
+      const normalizedName = item.name.trim();
       const key = normalizedName.toLowerCase();
       let group = dishGroups.get(key);
       if (!group) {
@@ -113,14 +111,12 @@ export class RestaurantsService {
       group.push(item);
     }
 
-    // 4. Format and Aggregate Results
     const allDishes = Array.from(dishGroups.values()).map(group => {
-      // Use the first item as a representative for dishDetails
       const repItem = group[0];
       if (!repItem) return null;
       const restaurants = group.map(item => {
         const restaurant = item.category.restaurant;
-        let deliveryTime = "30-35 mins"; // Placeholder default
+        let deliveryTime = "30-35 mins";
         if (userLat && userLng) {
           const dist = this.calculateDistance(userLat, userLng, restaurant.lat, restaurant.lng);
           deliveryTime = `${Math.round(15 + (dist * 5))}-${Math.round(20 + (dist * 5))} mins`;
@@ -161,7 +157,6 @@ export class RestaurantsService {
       };
     }).filter((dish): dish is NonNullable<typeof dish> => dish !== null);
 
-    // 5. Sorting for Dishes
     const effectiveSortBy = sortBy || 'rating';
     const effectiveSortOrder = sortOrder || 'desc';
 
@@ -172,14 +167,12 @@ export class RestaurantsService {
         return effectiveSortOrder === 'asc' ? ratingA - ratingB : ratingB - ratingA;
       });
     } else if (effectiveSortBy === 'costForTwo' || effectiveSortBy === 'deliveryTime') {
-      // For these, we might want to sort by the minimum value in the restaurant list
       allDishes.sort((a, b) => {
         let valA, valB;
         if (effectiveSortBy === 'costForTwo') {
           valA = Math.min(...a.restaurants.map(r => r.costForTwo));
           valB = Math.min(...b.restaurants.map(r => r.costForTwo));
         } else {
-          // Parse delivery time for sorting
           valA = parseInt(a.restaurants[0].estimatedDelivery);
           valB = parseInt(b.restaurants[0].estimatedDelivery);
         }
@@ -187,7 +180,6 @@ export class RestaurantsService {
       });
     }
 
-    // 6. Pagination
     const totalUniqueDishes = allDishes.length;
     const paginatedDishes = allDishes.slice(skip, skip + limitNumber);
 
@@ -287,7 +279,6 @@ export class RestaurantsService {
         where: { id },
         data: dto
       });
-      // Invalidate cache global so searches and listing fetch fresh data immediately
       await this.cacheManager.clear();
       return updated;
     } catch (error) {
@@ -298,16 +289,14 @@ export class RestaurantsService {
   async remove(id: string) {
     const deleted = await this.prisma.restaurant.update({
       where: { id },
-      data: { isActive: false } // Soft delete as per your safety plan 
+      data: { isActive: false }
     });
-    // Invalidate cache entirely
     await this.cacheManager.clear();
     return deleted;
   }
 
-  // 4. MANAGER DASHBOARD
+  // 4. MANAGER DASHBOARD (legacy)
   async getDashboardStats(managerId: string, startDate?: Date, endDate?: Date) {
-    // Determine the restaurant belonging to this manager
     const restaurant = await this.prisma.restaurant.findUnique({
       where: { managerId }
     });
@@ -316,7 +305,6 @@ export class RestaurantsService {
       throw new NotFoundException('You do not have a restaurant associated with your account.');
     }
 
-    // Default to today if no dates provided
     let start = startDate;
     let end = endDate;
 
@@ -329,35 +317,23 @@ export class RestaurantsService {
     const startFilter = start.toISOString();
     const endFilter = end.toISOString();
 
-    // Fetch orders within the date range
     const orders = await this.prisma.order.findMany({
       where: {
         restaurantId: restaurant.id,
-        placedAt: {
-          gte: startFilter,
-          lte: endFilter
-        }
+        placedAt: { gte: startFilter, lte: endFilter }
       },
-      select: {
-        status: true,
-        itemTotal: true,
-      }
+      select: { status: true, itemTotal: true }
     });
 
     const totalOrders = orders.length;
     const completedOrders = orders.filter(o => o.status === 'DELIVERED');
     const cancelledOrders = orders.filter(o => o.status === 'CANCELLED');
     const activeOrders = orders.filter(o => o.status !== 'DELIVERED' && o.status !== 'CANCELLED');
-
-    // Revenue calculation (summing itemTotal of delivered orders)
     const revenue = completedOrders.reduce((sum, order) => sum + order.itemTotal, 0);
 
     return {
       restaurantName: restaurant.name,
-      period: {
-        start: startFilter,
-        end: endFilter
-      },
+      period: { start: startFilter, end: endFilter },
       metrics: {
         totalOrders,
         completedOrders: completedOrders.length,
@@ -366,5 +342,172 @@ export class RestaurantsService {
         revenue
       }
     };
+  }
+
+  // ─── 5. STATS PAGE API ──────────────────────────────────────────────────────
+  async getStats(managerId: string, period: StatsPeriod = StatsPeriod.WEEK) {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { managerId }
+    });
+    if (!restaurant) throw new NotFoundException('Restaurant not found');
+
+    const { current, previous } = this.getRange(period);
+
+    const [currentMetrics, previousMetrics] = await Promise.all([
+      this.getMetrics(restaurant.id, current.start, current.end),
+      this.getMetrics(restaurant.id, previous.start, previous.end)
+    ]);
+
+    const chartData = await this.getChartData(restaurant.id, current.start, current.end, period);
+    const topItems = await this.getTopItems(restaurant.id, current.start, current.end);
+    const paymentBreakdown = await this.getPaymentBreakdown(restaurant.id, current.start, current.end);
+    const ratings = await this.getRatingSummary(restaurant.id);
+
+    return {
+      kpis: {
+        revenue: {
+          value: Math.round(currentMetrics.revenue * 100) / 100,
+          change: this.calcChange(currentMetrics.revenue, previousMetrics.revenue)
+        },
+        orders: {
+          value: currentMetrics.orders,
+          change: this.calcChange(currentMetrics.orders, previousMetrics.orders)
+        },
+        aov: {
+          value: Math.round(currentMetrics.aov * 100) / 100,
+          change: this.calcChange(currentMetrics.aov, previousMetrics.aov)
+        }
+      },
+      chartData,
+      topItems,
+      paymentBreakdown,
+      ratings
+    };
+  }
+
+  // ── Helpers ──
+  private getRange(period: StatsPeriod) {
+    const now = new Date();
+    let cs: Date, ps: Date, pe: Date;
+
+    if (period === StatsPeriod.TODAY) {
+      cs = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      ps = new Date(cs.getTime() - 86400000);
+      pe = new Date(cs.getTime() - 1);
+    } else if (period === StatsPeriod.WEEK) {
+      cs = new Date(now.getTime() - 7 * 86400000);
+      ps = new Date(cs.getTime() - 7 * 86400000);
+      pe = new Date(cs.getTime() - 1);
+    } else if (period === StatsPeriod.MONTH) {
+      cs = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+      ps = new Date(cs.getFullYear(), cs.getMonth() - 1, cs.getDate());
+      pe = new Date(cs.getTime() - 1);
+    } else {
+      cs = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+      ps = new Date(cs.getFullYear() - 1, cs.getMonth(), cs.getDate());
+      pe = new Date(cs.getTime() - 1);
+    }
+
+    return { current: { start: cs, end: now }, previous: { start: ps, end: pe } };
+  }
+
+  private async getMetrics(restaurantId: string, start: Date, end: Date) {
+    const stats = await this.prisma.order.aggregate({
+      where: {
+        restaurantId,
+        status: 'DELIVERED',
+        placedAt: { gte: start, lte: end }
+      },
+      _sum: { itemTotal: true },
+      _count: { id: true }
+    });
+    const revenue = stats._sum.itemTotal || 0;
+    const orders = stats._count.id || 0;
+    return { revenue, orders, aov: orders > 0 ? revenue / orders : 0 };
+  }
+
+  private calcChange(cur: number, prev: number) {
+    if (prev === 0) return cur > 0 ? 100 : 0;
+    return parseFloat(((cur - prev) / prev * 100).toFixed(1));
+  }
+
+  private async getChartData(restaurantId: string, start: Date, end: Date, period: StatsPeriod) {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        restaurantId, status: 'DELIVERED',
+        placedAt: { gte: start, lte: end }
+      },
+      select: { placedAt: true, itemTotal: true }
+    });
+
+    const groups: Record<string, number> = {};
+    orders.forEach(o => {
+      const d = new Date(o.placedAt);
+      let key: string;
+      if (period === StatsPeriod.TODAY) key = `${d.getHours()}:00`;
+      else if (period === StatsPeriod.WEEK) key = d.toLocaleDateString('en-US', { weekday: 'short' });
+      else if (period === StatsPeriod.MONTH) key = `Week ${Math.ceil(d.getDate() / 7)}`;
+      else key = d.toLocaleDateString('en-US', { month: 'short' });
+      groups[key] = (groups[key] || 0) + o.itemTotal;
+    });
+
+    return Object.entries(groups).map(([label, value]) => ({
+      label, value: Math.round(value * 100) / 100
+    }));
+  }
+
+  private async getTopItems(restaurantId: string, start: Date, end: Date) {
+    const items = await this.prisma.orderItem.findMany({
+      where: {
+        order: { restaurantId, status: 'DELIVERED', placedAt: { gte: start, lte: end } }
+      },
+      include: { menuItem: true }
+    });
+
+    const counts: Record<string, { orders: number; revenue: number; name: string }> = {};
+    items.forEach(item => {
+      if (!counts[item.menuItemId]) {
+        counts[item.menuItemId] = { orders: 0, revenue: 0, name: item.menuItem.name };
+      }
+      counts[item.menuItemId].orders += item.quantity;
+      counts[item.menuItemId].revenue += item.price * item.quantity;
+    });
+
+    return Object.values(counts)
+      .sort((a, b) => b.orders - a.orders)
+      .slice(0, 5)
+      .map(i => ({ ...i, revenue: Math.round(i.revenue * 100) / 100 }));
+  }
+
+  private async getPaymentBreakdown(restaurantId: string, start: Date, end: Date) {
+    const orders = await this.prisma.order.groupBy({
+      by: ['paymentMode'],
+      where: {
+        restaurantId, status: 'DELIVERED',
+        placedAt: { gte: start, lte: end }
+      },
+      _count: { id: true }
+    });
+    const total = orders.reduce((s, o) => s + o._count.id, 0);
+    return orders.map(o => ({
+      label: o.paymentMode,
+      count: o._count.id,
+      percentage: total > 0 ? Math.round((o._count.id / total) * 100) : 0
+    }));
+  }
+
+  private async getRatingSummary(restaurantId: string) {
+    const reviews = await this.prisma.review.findMany({ where: { restaurantId } });
+    const total = reviews.length;
+    if (total === 0) return { average: 0, count: 0, breakdown: [] };
+
+    const sum = reviews.reduce((s, r) => s + r.foodRating, 0);
+    const average = parseFloat((sum / total).toFixed(1));
+    const breakdown = [5, 4, 3, 2, 1].map(stars => ({
+      stars,
+      percentage: Math.round((reviews.filter(r => r.foodRating === stars).length / total) * 100)
+    }));
+
+    return { average, count: total, breakdown };
   }
 }

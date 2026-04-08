@@ -6,6 +6,7 @@ import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { SearchRestaurantsDto } from './dto/search-restaurants.dto';
 import { DashboardQueryDto } from './dto/dashboard-query.dto';
+import { GetStatsDto } from './dto/get-stats.dto';
 import { PaginationDto } from '../common/pagination.dto';
 import { AuthGuard } from 'src/auth/auth.guard';
 import { RolesGuard } from 'src/auth/roles.guard';
@@ -110,6 +111,23 @@ export class RestaurantsController {
   })
   async findAll(@Query() dto: PaginationDto) {
     return this.restaurantsService.findAll(dto);
+  }
+
+  // ─── MANAGER: STATS PAGE ─────────────────────────────────────────────────
+  @Get('stats')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(Role.RESTAURANT_MANAGER)
+  @ApiOperation({
+    summary: 'Get Restaurant Stats (Manager Only)',
+    description: 'Full analytics: KPIs with trend comparison, revenue chart, top items, payment breakdown, and ratings.'
+  })
+  @ApiResponse({ status: 200, description: 'Stats data' })
+  async getStats(
+    @Query() dto: GetStatsDto,
+    @Req() req: AuthenticatedRequest
+  ) {
+    return this.restaurantsService.getStats(req.user.id, dto.period);
   }
 
   // ─── MANAGER: DASHBOARD ───────────────────────────────────────────────────
