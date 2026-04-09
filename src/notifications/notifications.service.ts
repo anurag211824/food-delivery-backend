@@ -93,8 +93,35 @@ export class NotificationsService {
             try {
                 const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
                 // Can log or process ticketChunk to find unregistered devices to prune them
-            } catch (error) {
-                this.logger.error('Error sending Expo push notification chunk', error);
+            } catch (error: any) {
+                if (error.code === 'PUSH_TOO_MANY_EXPERIENCE_IDS' && error.details) {
+                    this.logger.warn('Mixed experience IDs detected, grouping and retrying...');
+                    
+                    const details = error.details as Record<string, string[]>;
+                    for (const [experienceId, tokens] of Object.entries(details)) {
+                        const projectMessages = chunk.filter(m => {
+                            if (typeof m.to === 'string') {
+                                return tokens.includes(m.to);
+                            } else if (Array.isArray(m.to)) {
+                                return m.to.some(t => tokens.includes(t));
+                            }
+                            return false;
+                        });
+
+                        if (projectMessages.length > 0) {
+                            const projectChunks = this.expo.chunkPushNotifications(projectMessages);
+                            for (const projChunk of projectChunks) {
+                                try {
+                                    await this.expo.sendPushNotificationsAsync(projChunk);
+                                } catch (retryError) {
+                                    this.logger.error(`Error sending push to project ${experienceId}`, retryError);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    this.logger.error('Error sending Expo push notification chunk', error);
+                }
             }
         }
     }
