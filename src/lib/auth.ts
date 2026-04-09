@@ -73,7 +73,7 @@ export const auth = betterAuth({
         }),
     ],
 
-    trustedOrigins: ["food-delivery-customer://"],
+    trustedOrigins: ["food-delivery-customer://", "fooddeliveryrestaurant://", "fooddeliverydriver://", "food-delivery-driver://", "food-delivery-restaurant://"],
     
     session: {
         additionalFields: {
