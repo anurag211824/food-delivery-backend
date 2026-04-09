@@ -6,7 +6,7 @@ export class CreateMenuCategoryDto {
   @ApiProperty({ example: 'Main Course', description: 'Name of the menu category' })
   @IsString()
   @IsNotEmpty()
-  name: string; // e.g., "Recommended", "Main Course", "Drinks"
+  name!: string; // e.g., "Recommended", "Main Course", "Drinks"
 
   @ApiProperty({ example: 'https://example.com/category-image.jpg', description: 'Image URL for the menu category' })
   @IsString()
