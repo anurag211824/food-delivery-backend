@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Req, Res, Param, NotFoundException, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Req, Res, Param, NotFoundException, UseGuards } from '@nestjs/common';
 import {
     ApiTags, ApiOperation, ApiResponse, ApiBearerAuth,
     ApiBody, ApiParam
@@ -6,7 +6,7 @@ import {
 import { auth } from "../lib/auth";
 import { toNodeHandler, fromNodeHeaders } from 'better-auth/node';
 import type { Request, Response } from 'express';
-import { SignUpDto, SignInDto, SocialSignInDto } from './dto/auth.dto';
+import { SignUpDto, SignInDto, SocialSignInDto, UpdateProfileDto } from './dto/auth.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { AuthGuard } from './auth.guard';
 import type { AuthenticatedRequest } from './auth.types';
@@ -370,6 +370,52 @@ export class AuthController {
             ...user,
             referralCount: user?._count.referrals ?? 0,
         };
+    }
+
+    @Patch('me')
+    @UseGuards(AuthGuard)
+    @ApiBearerAuth()
+    @ApiOperation({
+        summary: 'Update my profile',
+        description: 'Updates the logged-in user profile fields.'
+    })
+    @ApiBody({ type: UpdateProfileDto })
+    @ApiResponse({
+        status: 200,
+        description: 'User profile updated successfully',
+    })
+    @ApiResponse({ status: 401, description: 'Not authenticated — send Bearer token' })
+    async updateMe(@Req() req: AuthenticatedRequest, @Body() body: UpdateProfileDto) {
+        const updateData: any = {};
+        
+        if (body.name !== undefined) updateData.name = body.name;
+        if (body.image !== undefined) updateData.image = body.image;
+        if (body.gender !== undefined) updateData.gender = body.gender;
+        if (body.isVeg !== undefined) updateData.isVeg = body.isVeg;
+        if (body.dob !== undefined) {
+            updateData.dob = body.dob ? new Date(body.dob) : null;
+        }
+
+        const updatedUser = await this.prisma.user.update({
+            where: { id: req.user.id },
+            data: updateData,
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                phoneNumber: true,
+                image: true,
+                role: true,
+                dob: true,
+                gender: true,
+                isVeg: true,
+                language: true,
+                referralCode: true,
+                createdAt: true,
+            }
+        });
+
+        return updatedUser;
     }
 
     // ─── OAUTH CALLBACK HANDLER ───────────────────────────────────────────────

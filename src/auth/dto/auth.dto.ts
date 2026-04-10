@@ -71,3 +71,30 @@ export class SocialSignInDto {
     @IsString()
     callbackURL?: string;
 }
+
+export class UpdateProfileDto {
+    @ApiPropertyOptional({ example: 'John Doe', description: 'Full name' })
+    @IsOptional()
+    @IsString()
+    name?: string;
+
+    @ApiPropertyOptional({ example: 'https://example.com/avatar.jpg', description: 'Profile picture URL' })
+    @IsOptional()
+    @IsUrl()
+    image?: string;
+
+    @ApiPropertyOptional({ example: '1990-01-01', description: 'Date of Birth (YYYY-MM-DDT00:00:00.000Z)' })
+    @IsOptional()
+    @IsString()
+    dob?: string;
+
+    @ApiPropertyOptional({ example: 'Male', description: 'Gender' })
+    @IsOptional()
+    @IsString()
+    gender?: string;
+
+    @ApiPropertyOptional({ example: true, description: 'Is the user vegetarian?' })
+    @IsOptional()
+    @IsBoolean()
+    isVeg?: boolean;
+}
