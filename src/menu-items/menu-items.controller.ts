@@ -35,7 +35,7 @@ export class MenuItemsController {
   @Post()
   @ApiBearerAuth()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Create a menu item',
     description: 'Add a new dish to your restaurant menu. Link it to a category via `categoryId`. Only the restaurant manager can create items.'
@@ -49,7 +49,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 401, description: 'Not authenticated' })
   @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER role' })
   create(@Body() dto: CreateMenuItemDto, @Req() req: AuthenticatedRequest): Promise<MenuItem> {
-    return this.menuItemsService.create(dto, req.user.id);
+    return this.menuItemsService.create(dto, req.user);
   }
 
   // ─── PUBLIC: LIST ALL ─────────────────────────────────────────────────────
@@ -108,7 +108,7 @@ export class MenuItemsController {
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Update a menu item',
     description: 'Edit any field of a menu item — price, availability, spice level, etc. All fields are optional.'
@@ -131,7 +131,7 @@ export class MenuItemsController {
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Delete a menu item',
     description: 'Permanently remove a dish from the menu.'

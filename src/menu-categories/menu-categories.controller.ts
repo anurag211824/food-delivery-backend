@@ -28,7 +28,7 @@ export class MenuCategoriesController {
   @Post()
   @ApiBearerAuth()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Create a menu category',
     description: 'Add a new category (e.g., "Starters", "Main Course", "Drinks") to your restaurant menu. The restaurant is inferred from the logged-in manager.'
@@ -46,7 +46,7 @@ export class MenuCategoriesController {
     @Body() dto: CreateMenuCategoryDto,
     @Req() req: AuthenticatedRequest
   ): Promise<MenuCategory> {
-    return this.menuCategoriesService.create(dto, req.user.id);
+    return this.menuCategoriesService.create(dto, req.user);
   }
 
   // ─── PUBLIC: BY RESTAURANT ────────────────────────────────────────────────
@@ -102,7 +102,7 @@ export class MenuCategoriesController {
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Update a category',
     description: 'Rename or modify a menu category.'
@@ -125,7 +125,7 @@ export class MenuCategoriesController {
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Delete a category',
     description: 'Remove a category and all its associated menu items permanently.'

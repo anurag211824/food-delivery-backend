@@ -134,6 +134,16 @@ export class AdminService {
             throw new BadRequestException(`This request is already ${request.status}.`);
         }
 
+        const existingRestaurant = await this.prisma.restaurant.findUnique({
+            where: { managerId: request.userId }
+        });
+
+        if (existingRestaurant) {
+            // Auto-reject the request because they already have one, or just throw.
+            throw new BadRequestException(`This user already manages a restaurant ("${existingRestaurant.name}").`);
+        }
+
+
         // ⚡ Atomic transaction: update request + update user role + create Restaurant
         const [updatedRequest, restaurant] = await this.prisma.$transaction([
             // 1. Mark request as approved

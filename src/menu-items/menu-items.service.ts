@@ -13,19 +13,20 @@ export class MenuItemsService {
     @Inject(CACHE_MANAGER) private cacheManager: Cache
   ) {}
 
-  async create(dto: CreateMenuItemDto,managerId:string):Promise<MenuItem> {
+  async create(dto: CreateMenuItemDto, user: { id: string, role: string }): Promise<MenuItem> {
     const category = await this.prisma.menuCategory.findUnique({
-      where:{id:dto.categoryId},
-      include:{restaurant:true}
-    })
+      where: { id: dto.categoryId },
+      include: { restaurant: true }
+    });
 
-    if(!category){
-      throw new NotFoundException("Category not Found")
+    if (!category) {
+      throw new NotFoundException("Category not Found");
     }
 
-    if(category.restaurant.managerId !== managerId){
-      throw new ForbiddenException("You do not have permission to add items to this category.")
+    if (user.role !== 'ADMIN' && category.restaurant.managerId !== user.id) {
+      throw new ForbiddenException("You do not have permission to add items to this category.");
     }
+
 
     const newItem = await this.prisma.menuItem.create({
      data: {

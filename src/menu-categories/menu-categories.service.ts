@@ -8,13 +8,26 @@ import { MenuCategory } from '@prisma/client';
 export class MenuCategoriesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateMenuCategoryDto, managerId: string): Promise<MenuCategory> {
-    const restaurant = await this.prisma.restaurant.findUnique({
-      where: { managerId }
-    });
+  async create(dto: CreateMenuCategoryDto, user: { id: string, role: string }): Promise<MenuCategory> {
+    let restaurantId = dto.restaurantId;
 
-    if (!restaurant) {
-      throw new NotFoundException("You do not have a restaurant yet.");
+    if (!restaurantId) {
+      const restaurant = await this.prisma.restaurant.findUnique({
+        where: { managerId: user.id }
+      });
+
+      if (!restaurant) {
+        throw new NotFoundException("You do not have a restaurant yet.");
+      }
+      restaurantId = restaurant.id;
+    } else if (user.role !== 'ADMIN') {
+      // If a non-admin tries to specify an ID, verify they own it
+      const restaurant = await this.prisma.restaurant.findUnique({
+        where: { id: restaurantId }
+      });
+      if (!restaurant || restaurant.managerId !== user.id) {
+        throw new NotFoundException("Restaurant not found or permission denied.");
+      }
     }
 
     return this.prisma.menuCategory.create({
@@ -22,7 +35,7 @@ export class MenuCategoriesService {
         name: dto.name,
         image: dto.image,
         type: dto.type,
-        restaurantId: restaurant.id
+        restaurantId: restaurantId
       }
     });
   }

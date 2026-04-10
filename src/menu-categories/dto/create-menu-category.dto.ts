@@ -17,5 +17,10 @@ export class CreateMenuCategoryDto {
   @ApiProperty({ example: 'VEG', description: 'VegType of the menu category' })
   @IsEnum(VegType)
   @IsOptional()
-  type?: VegType
+  type?: VegType;
+
+  @ApiProperty({ example: 'clxyz789', description: 'Restaurant ID (Optional, used by Admin)' })
+  @IsString()
+  @IsOptional()
+  restaurantId?: string;
 }
