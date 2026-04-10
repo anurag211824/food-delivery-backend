@@ -2,7 +2,7 @@ import { ConflictException, Injectable, NotFoundException, Inject } from '@nestj
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { Restaurant, VegType } from '@prisma/client';
+import { Restaurant, VegType, Role, User } from '@prisma/client';
 import { SearchRestaurantsDto } from './dto/search-restaurants.dto';
 import { GetStatsDto, StatsPeriod } from './dto/get-stats.dto';
 import { PaginationDto } from 'src/common/pagination.dto';
@@ -16,22 +16,29 @@ export class RestaurantsService {
     @Inject(CACHE_MANAGER) private cacheManager: Cache
   ) { }
 
-  async create(createRestaurantDto: CreateRestaurantDto, managerId: string): Promise<Restaurant> {
+  async create(createRestaurantDto: CreateRestaurantDto, user: { id: string, role: string }): Promise<Restaurant> {
+    const targetManagerId = (user.role === 'ADMIN' && createRestaurantDto.managerId)
+      ? createRestaurantDto.managerId
+      : user.id;
+
     const existing = await this.prisma.restaurant.findUnique({
-      where: { managerId }
+      where: { managerId: targetManagerId }
     });
 
     if (existing) {
-      throw new ConflictException("You already have a restaurant");
+      throw new ConflictException("Manager already has a restaurant");
     }
+
+    // Extract managerId from dto to avoid prisma error if it's passed but not expected in data spread
+    const { managerId: _unused, ...restaurantData } = createRestaurantDto;
 
     return this.prisma.restaurant.create({
       data: {
-        ...createRestaurantDto,
-        managerId,
+        ...restaurantData,
+        managerId: targetManagerId,
         isActive: true,
         isOpen: true,
-        isVerified: false,
+        isVerified: user.role === 'ADMIN', // Auto-verify if admin creates it
       }
     });
   }
@@ -197,9 +204,16 @@ export class RestaurantsService {
   }
 
   // 2. LISTINGS & DETAILS
-  async findMyRestaurant(managerId: string) {
+  async findMyRestaurant(user: Pick<User, 'id' | 'role'>, restaurantId?: string) {
+    let where: any = {};
+    if (user.role === Role.ADMIN && restaurantId) {
+      where = { id: restaurantId };
+    } else {
+      where = { managerId: user.id };
+    }
+
     const restaurant = await this.prisma.restaurant.findUnique({
-      where: { managerId },
+      where,
       include: {
         menuCategories: {
           include: {
@@ -211,7 +225,7 @@ export class RestaurantsService {
     });
 
     if (!restaurant) {
-      throw new NotFoundException('You do not possess a registered restaurant profile.');
+      throw new NotFoundException('Restaurant profile not found.');
     }
     return restaurant;
   }
@@ -296,9 +310,16 @@ export class RestaurantsService {
   }
 
   // 4. MANAGER DASHBOARD (legacy)
-  async getDashboardStats(managerId: string, startDate?: Date, endDate?: Date) {
+  async getDashboardStats(user: Pick<User, 'id' | 'role'>, startDate?: Date, endDate?: Date, restaurantId?: string) {
+    let where: any = {};
+    if (user.role === Role.ADMIN && restaurantId) {
+      where = { id: restaurantId };
+    } else {
+      where = { managerId: user.id };
+    }
+
     const restaurant = await this.prisma.restaurant.findUnique({
-      where: { managerId }
+      where: where
     });
 
     if (!restaurant) {
@@ -345,9 +366,16 @@ export class RestaurantsService {
   }
 
   // ─── 5. STATS PAGE API ──────────────────────────────────────────────────────
-  async getStats(managerId: string, period: StatsPeriod = StatsPeriod.WEEK) {
+  async getStats(user: Pick<User, 'id' | 'role'>, period: StatsPeriod = StatsPeriod.WEEK, restaurantId?: string) {
+    let where: any = {};
+    if (user.role === Role.ADMIN && restaurantId) {
+      where = { id: restaurantId };
+    } else {
+      where = { managerId: user.id };
+    }
+
     const restaurant = await this.prisma.restaurant.findUnique({
-      where: { managerId }
+      where: where
     });
     if (!restaurant) throw new NotFoundException('Restaurant not found');
 

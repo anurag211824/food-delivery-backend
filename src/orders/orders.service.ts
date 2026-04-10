@@ -446,16 +446,22 @@ export class OrdersService {
     return { data, meta: { total, page: pageNumber, limit: limitNumber, totalPages: Math.ceil(total / limitNumber) } };
   }
 
-  async getRestaurantOrders(managerId: string, dto: PaginationDto, status?: OrderStatus) {
+  async getRestaurantOrders(user: Pick<User, 'id' | 'role'>, dto: PaginationDto, status?: OrderStatus, restaurantId?: string) {
     const pageNumber = dto.page || 1;
     const limitNumber = dto.limit || 10;
     const skip = (pageNumber - 1) * limitNumber;
 
-    const where: any = {
-      restaurant: {
-        managerId: managerId,
-      }
-    };
+    let where: any = {};
+
+    if (user.role === Role.ADMIN && restaurantId) {
+      where = { restaurantId: restaurantId };
+    } else {
+      where = {
+        restaurant: {
+          managerId: user.id,
+        }
+      };
+    }
 
     if (status) {
       where.status = status;
@@ -504,16 +510,18 @@ export class OrdersService {
   }
 
   // ─── MANAGER CANCEL ORDER ──────────────────────────────────────────────
-  async cancelOrderByManager(orderId: string, managerId: string, reason: string) {
+  async cancelOrderByManager(orderId: string, user: Pick<User, 'id' | 'role'>, reason: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { restaurant: true },
     });
 
     if (!order) throw new NotFoundException('Order not found');
-    if (order.restaurant.managerId !== managerId) {
+    
+    if (user.role !== Role.ADMIN && order.restaurant.managerId !== user.id) {
       throw new ForbiddenException('You do not have permission to manage this restaurant.');
     }
+    
     if (order.status === 'DELIVERED' || order.status === 'CANCELLED') {
       throw new BadRequestException(`Cannot cancel a ${order.status} order.`);
     }

@@ -31,16 +31,16 @@ export class OrdersController {
   @Get('restaurant')
   @ApiOperation({ summary: "Get Orders for managed restaurant (Manager Only)" })
   @UseGuards(RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   async getRestaurantOrders(
     @Req() req: AuthenticatedRequest, 
     @Query('page') page?: string,
     @Query('limit') limit?: string,
-    @Query('status') status?: OrderStatus
+    @Query('status') status?: OrderStatus,
+    @Query('restaurantId') restaurantId?: string
   ) {
-    const user = req.user;
     const dto: PaginationDto = { page: Number(page) || 1, limit: Number(limit) || 10 };
-    return this.ordersService.getRestaurantOrders(user.id, dto, status);
+    return this.ordersService.getRestaurantOrders(req.user, dto, status, restaurantId);
   }
 
   @Get('current')
@@ -124,12 +124,12 @@ export class OrdersController {
     },
   })
   @UseGuards(RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   async cancelOrderByManager(
     @Param('id') id: string,
     @Body('reason') reason: string,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.ordersService.cancelOrderByManager(id, req.user.id, reason);
+    return this.ordersService.cancelOrderByManager(id, req.user, reason);
   }
 }

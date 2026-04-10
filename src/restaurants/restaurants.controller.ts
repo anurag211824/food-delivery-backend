@@ -117,7 +117,7 @@ export class RestaurantsController {
   @Get('stats')
   @ApiBearerAuth()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Get Restaurant Stats (Manager Only)',
     description: 'Full analytics: KPIs with trend comparison, revenue chart, top items, payment breakdown, and ratings.'
@@ -125,16 +125,17 @@ export class RestaurantsController {
   @ApiResponse({ status: 200, description: 'Stats data' })
   async getStats(
     @Query() dto: GetStatsDto,
-    @Req() req: AuthenticatedRequest
+    @Req() req: AuthenticatedRequest,
+    @Query('restaurantId') restaurantId?: string
   ) {
-    return this.restaurantsService.getStats(req.user.id, dto.period);
+    return this.restaurantsService.getStats(req.user, dto.period, restaurantId);
   }
 
   // ─── MANAGER: DASHBOARD ───────────────────────────────────────────────────
   @Get('dashboard')
   @ApiBearerAuth()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Get Restaurant Dashboard Analytics (Manager Only)',
     description: 'Fetch total orders, revenue, and active orders. By default returns today\'s data, but accepts optional `startDate` and `endDate` query parameters for custom ranges.'
@@ -147,16 +148,17 @@ export class RestaurantsController {
   @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER role' })
   async getDashboard(
     @Query() query: DashboardQueryDto,
-    @Req() req: AuthenticatedRequest
+    @Req() req: AuthenticatedRequest,
+    @Query('restaurantId') restaurantId?: string
   ) {
-    return this.restaurantsService.getDashboardStats(req.user.id, query.startDate, query.endDate);
+    return this.restaurantsService.getDashboardStats(req.user, query.startDate, query.endDate, restaurantId);
   }
 
   // ─── MANAGER: GET MY RESTAURANT ───────────────────────────────────────────
   @Get('me')
   @ApiBearerAuth()
   @UseGuards(AuthGuard, RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Get my restaurant details',
     description: 'Returns the full detail page for the restaurant belonging to the currently logged in manager.'
@@ -168,8 +170,11 @@ export class RestaurantsController {
   @ApiResponse({ status: 401, description: 'Not authenticated' })
   @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER role' })
   @ApiResponse({ status: 404, description: 'You do not possess a registered restaurant profile.' })
-  async findMyRestaurant(@Req() req: AuthenticatedRequest) {
-    return this.restaurantsService.findMyRestaurant(req.user.id);
+  async findMyRestaurant(
+    @Req() req: AuthenticatedRequest,
+    @Query('restaurantId') restaurantId?: string
+  ) {
+    return this.restaurantsService.findMyRestaurant(req.user, restaurantId);
   }
 
   // ─── PUBLIC: GET ONE ──────────────────────────────────────────────────────
@@ -211,7 +216,7 @@ export class RestaurantsController {
     @Body() dto: CreateRestaurantDto,
     @Req() req: AuthenticatedRequest
   ): Promise<Restaurant> {
-    return this.restaurantsService.create(dto, req.user.id);
+    return this.restaurantsService.create(dto, req.user);
   }
 
   // ─── MANAGER: UPDATE ──────────────────────────────────────────────────────

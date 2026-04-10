@@ -44,6 +44,11 @@ export class CreateRestaurantDto {
   @Max(180)
   lng: number;
 
+  @ApiPropertyOptional({ example: 'clxyz123', description: 'User ID who will manage this restaurant (Admin only override)' })
+  @IsString()
+  @IsOptional()
+  managerId?: string;
+
   @ApiPropertyOptional({ example: '12345678901234', description: 'FSSAI License code' })
   @IsString()
   @IsOptional()

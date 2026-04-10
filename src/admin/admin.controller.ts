@@ -1,5 +1,5 @@
 import {
-    Controller, Get, Patch, Body, Query, Param,
+    Controller, Get, Patch, Post, Body, Query, Param,
     UseGuards, Req,
 } from '@nestjs/common';
 import {
@@ -9,6 +9,7 @@ import {
 import { RequestStatus, Role } from '@prisma/client';
 import { AdminService } from './admin.service';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+import { CreateUserDto } from './dto/create-user.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -46,6 +47,14 @@ export class AdminController {
     @ApiBody({ type: UpdateUserRoleDto })
     async updateUserRole(@Body() dto: UpdateUserRoleDto, @Req() req: AuthenticatedRequest) {
         return this.adminService.updateUserRole(dto, req.user.id);
+    }
+
+    @Post('users')
+    @ApiOperation({ summary: '[Admin] Create a new user account', description: 'Directly create a user with a specific role. Useful for onboarding managers manually.' })
+    @ApiBody({ type: CreateUserDto })
+    @ApiResponse({ status: 201, description: 'User created successfully' })
+    async createUser(@Body() dto: CreateUserDto) {
+        return this.adminService.createUser(dto);
     }
 
     // ─── BAN / VERIFY RESTAURANT ──────────────────────────────────────────────

@@ -2,7 +2,9 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { RequestStatus, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
+import { CreateUserDto } from './dto/create-user.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { auth } from "../lib/auth";
 
 @Injectable()
 export class AdminService {
@@ -350,5 +352,37 @@ export class AdminService {
         ]);
 
         return { data, total, page, limit };
+    }
+
+    // ─── CREATE USER (ADMIN) ──────────────────────────────────────────────────
+    async createUser(dto: CreateUserDto) {
+        // 1. Create the user via Better Auth (handles hashing/accounts)
+        const response = await auth.api.signUpEmail({
+            body: {
+                email: dto.email,
+                password: dto.password,
+                name: dto.name,
+            }
+        });
+
+        if (!response || !response.user) {
+            throw new BadRequestException('Failed to create user account.');
+        }
+
+        // 2. Promotion & Verification Logic
+        // Better Auth signUp doesn't allow setting role in body for safety
+        const updated = await this.prisma.user.update({
+            where: { id: response.user.id },
+            data: {
+                role: dto.role || Role.RESTAURANT_MANAGER,
+                emailVerified: true // Admin-created accounts are trusted
+            },
+            select: { id: true, name: true, email: true, role: true, createdAt: true }
+        });
+
+        return {
+            message: 'User account created successfully.',
+            user: updated
+        };
     }
 }
