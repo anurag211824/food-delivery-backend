@@ -22,15 +22,16 @@ export class NotificationsService {
         const activeSessions = await this.prisma.session.findMany({
             where: {
                 userId,
-                pushToken: { not: null }
+                pushToken: { not: null },
+                expiresAt: { gt: new Date() },
             },
             select: { pushToken: true }
         });
 
-        const tokens = activeSessions.map(s => s.pushToken as string);
+        const tokens = Array.from(new Set(activeSessions.map(s => s.pushToken as string)));
 
         if (tokens.length > 0) {
-            await this.sendExpoPush(tokens, title, body, data);
+            await this.sendExpoPush(tokens, title, body, { ...(data || {}), type });
         }
 
         return notification;
@@ -53,7 +54,10 @@ export class NotificationsService {
 
         // Fetch all unique push tokens in the system
         const sessions = await this.prisma.session.findMany({
-            where: { pushToken: { not: null } },
+            where: {
+                pushToken: { not: null },
+                expiresAt: { gt: new Date() },
+            },
             select: { pushToken: true }
         });
 

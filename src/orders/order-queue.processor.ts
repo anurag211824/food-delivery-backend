@@ -245,6 +245,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
         this.logger.log(`Dispatching order ${orderId} to driver ${closestDriverId} (${distanceKm.toFixed(2)}km away) [attempt ${attemptCount + 1}]`);
 
         const earning = order.deliveryCharge + order.driverTip;
+        const offerExpiresAt = Date.now() + 45_000;
 
         // Send WebSocket directly to the specific driver's private room
         this.eventsGateway.emitOrderOffered(closestDriverId, {
@@ -252,7 +253,8 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
             restaurantName: order.restaurant.name,
             distanceKm: distanceKm.toFixed(2),
             earning: earning,
-            expiresInSeconds: 45
+            expiresInSeconds: 45,
+            offerExpiresAt
         });
 
         // Send Push Notification 
@@ -261,7 +263,13 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
             'New Delivery Available! 🛵',
             `${order.restaurant.name} - Earn ₹${earning}. Tap to accept within 45s.`,
             'ORDER_OFFER',
-            { orderId: order.id }
+            {
+                orderId: order.id,
+                restaurantName: order.restaurant.name,
+                distanceKm: Number(distanceKm.toFixed(2)),
+                earning,
+                offerExpiresAt,
+            }
         ).catch(e => this.logger.error('Failed push notification', e));
 
         // Enqueue timeout check after 45 seconds

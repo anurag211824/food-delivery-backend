@@ -371,6 +371,8 @@ export class OrdersService {
       phone: order.driver.user.phoneNumber,
       vehiclePlate: order.driver.vehiclePlate,
       profilePic: order.driver.profilePic,
+      currentLat: order.driver.currentLat,
+      currentLng: order.driver.currentLng,
     } : null;
     
     return {
@@ -393,7 +395,14 @@ export class OrdersService {
           select: { name: true, image: true, id: true, address: true, lat: true, lng: true }
         },
         driver: {
-          select: { user: { select: { name: true, phoneNumber: true } }, vehiclePlate: true, profilePic: true }
+          select: {
+            id: true,
+            user: { select: { name: true, phoneNumber: true } },
+            vehiclePlate: true,
+            profilePic: true,
+            currentLat: true,
+            currentLng: true,
+          }
         },
         items: {
           include: { menuItem: true }
@@ -408,10 +417,13 @@ export class OrdersService {
     
     // Flatten driver info for easier frontend consumption
     const driver = currentOrder.driver ? {
+      id: currentOrder.driver.id,
       name: currentOrder.driver.user.name,
       phone: currentOrder.driver.user.phoneNumber,
       vehiclePlate: currentOrder.driver.vehiclePlate,
       profilePic: currentOrder.driver.profilePic,
+      currentLat: currentOrder.driver.currentLat,
+      currentLng: currentOrder.driver.currentLng,
     } : null;
 
     return {
