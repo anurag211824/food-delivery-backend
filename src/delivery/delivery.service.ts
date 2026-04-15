@@ -255,7 +255,10 @@ export class DeliveryService {
     const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
     if (!profile) throw new NotFoundException('Driver profile not found.');
 
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { restaurant: true },
+    });
     if (!order) throw new NotFoundException('Order not found.');
 
     if (order.driverId !== profile.id) {
@@ -270,17 +273,20 @@ export class DeliveryService {
       throw new BadRequestException('Invalid OTP. Please check with the customer.');
     }
 
-    // ⚡ Atomic: mark delivered + increment delivery count
+    const isCOD = order.paymentMode === 'COD';
+
+    // ⚡ Atomic: mark delivered (+ mark paid if COD) 
     const deliveredOrder = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         status: 'DELIVERED',
         deliveredAt: new Date(),
+        ...(isCOD && { isPaid: true }), // COD is paid on door delivery
       }
     });
 
     // Increment totalDeliveries counter and make driver available again
-    const updatedDriver = await this.prisma.driverProfile.update({
+    await this.prisma.driverProfile.update({
       where: { id: profile.id },
       data: { 
         totalDeliveries: { increment: 1 },
@@ -288,10 +294,10 @@ export class DeliveryService {
       },
     });
 
-    // Note: Geo index re-entry will be handled by the next WebSocket location ping.
-    // This ensures we always use fresh coordinates.
+    // Note: Geo index re-entry handled by next WebSocket location ping.
 
-    // 💰 Credit driver earnings: deliveryCharge + driverTip → driver's wallet
+    // ─── DRIVER EARNINGS ──────────────────────────────────────────────────
+    // All payment modes: credit driver deliveryCharge + driverTip
     const driverEarnings = order.deliveryCharge + order.driverTip;
     if (driverEarnings > 0) {
       await this.walletsService.addFunds(
@@ -299,6 +305,55 @@ export class DeliveryService {
         driverEarnings,
         `DELIVERY_EARNING:${order.id}`,
       );
+    }
+
+    // ─── RESTAURANT PAYOUT ────────────────────────────────────────────────
+    // All payment modes: credit restaurant manager itemTotal + tax - commission
+    // For COD: happening now because cash was just collected
+    // For WALLET/online: customer already paid — restaurant gets their share at delivery
+    const restaurantPayout = order.itemTotal + order.tax - order.commission;
+    if (restaurantPayout > 0) {
+      const payoutType = isCOD
+        ? `COD_RESTAURANT_PAYOUT:${order.id}`
+        : `RESTAURANT_PAYOUT:${order.id}`;
+
+      await this.walletsService.addFunds(
+        order.restaurant.managerId,
+        restaurantPayout,
+        payoutType,
+      ).catch(e => console.error(`Failed restaurant payout for order ${order.id}:`, e));
+    }
+
+    // ─── COD SETTLEMENT ───────────────────────────────────────────────────
+    // Rider collected totalAmount cash. They keep driverEarnings.
+    // The rest must be remitted to the platform — debit via forceCharge (allows negative).
+    if (isCOD) {
+      const cashToRemit = order.totalAmount - driverEarnings;
+      if (cashToRemit > 0) {
+        await this.walletsService.forceCharge(
+          userId,
+          cashToRemit,
+          `COD_COLLECTION:${order.id}`,
+        );
+
+        // ─── GAP 1: Negative wallet floor alert ───────────────────────
+        // If rider's wallet drops below -₹500, alert them via push notification
+        const COD_ALERT_THRESHOLD = -500;
+        try {
+          const riderWallet = await this.walletsService.getBalance(userId);
+          if (riderWallet.balance < COD_ALERT_THRESHOLD) {
+            this.notificationsService.send(
+              userId,
+              'Cash Deposit Reminder 💰',
+              `Your wallet balance is ₹${riderWallet.balance.toFixed(0)}. Please deposit your collected cash to avoid delivery restrictions.`,
+              'SYSTEM',
+              { walletBalance: riderWallet.balance },
+            ).catch(e => console.error('Failed to send COD wallet alert', e));
+          }
+        } catch (e) {
+          console.error('Failed to check COD wallet threshold:', e);
+        }
+      }
     }
 
     this.eventsGateway.emitOrderStatusChange(orderId, 'DELIVERED');
@@ -458,10 +513,66 @@ export class DeliveryService {
     const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
     if (!profile) throw new NotFoundException('Driver profile not found.');
 
+    // Time range helpers
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - now.getDay()); // Start of current week (Sunday)
+    weekStart.setHours(0, 0, 0, 0);
+
+    // Fetch today's delivered orders for this driver
+    const todayOrders = await this.prisma.order.findMany({
+      where: {
+        driverId: profile.id,
+        status: 'DELIVERED',
+        deliveredAt: { gte: todayStart },
+      },
+      select: {
+        deliveryCharge: true,
+        driverTip: true,
+      },
+    });
+
+    // Fetch this week's delivered orders
+    const weekOrders = await this.prisma.order.findMany({
+      where: {
+        driverId: profile.id,
+        status: 'DELIVERED',
+        deliveredAt: { gte: weekStart },
+      },
+      select: {
+        deliveryCharge: true,
+        driverTip: true,
+      },
+    });
+
+    // Calculate aggregates
+    const todayDeliveryPay = todayOrders.reduce((sum, o) => sum + o.deliveryCharge, 0);
+    const todayTips       = todayOrders.reduce((sum, o) => sum + o.driverTip, 0);
+    const todayEarnings   = todayDeliveryPay + todayTips;
+    const weeklyEarnings  = weekOrders.reduce((sum, o) => sum + o.deliveryCharge + o.driverTip, 0);
+
+    // Wallet balance
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { userId },
+      select: { balance: true },
+    });
+
     return {
+      // Lifetime
       totalDeliveries: profile.totalDeliveries,
       rating: profile.rating,
       ratingCount: profile.ratingCount,
+      // Today
+      todayDeliveries: todayOrders.length,
+      todayEarnings: parseFloat(todayEarnings.toFixed(2)),
+      todayDeliveryPay: parseFloat(todayDeliveryPay.toFixed(2)),
+      todayTips: parseFloat(todayTips.toFixed(2)),
+      // This Week
+      weeklyDeliveries: weekOrders.length,
+      weeklyEarnings: parseFloat(weeklyEarnings.toFixed(2)),
+      // Wallet
+      walletBalance: parseFloat((wallet?.balance ?? 0).toFixed(2)),
     };
   }
 

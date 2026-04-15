@@ -189,6 +189,34 @@ export class WalletsService {
         });
     }
 
+    /**
+     * Force-debit a wallet WITHOUT requiring sufficient balance.
+     * This allows the balance to go negative.
+     * Used exclusively for COD settlement — the rider collected cash
+     * and owes the platform/restaurant share.
+     */
+    async forceCharge(userId: string, amount: number, reason: string) {
+        const wallet = await this.getBalance(userId);
+
+        return this.prisma.$transaction(async (prisma) => {
+            const transaction = await prisma.walletTransaction.create({
+                data: {
+                    walletId: wallet.id,
+                    amount: amount,
+                    direction: TransactionDirection.DEBIT,
+                    type: reason,
+                },
+            });
+
+            const updatedWallet = await prisma.wallet.update({
+                where: { id: wallet.id },
+                data: { balance: { decrement: amount } },
+            });
+
+            return { transaction, balance: updatedWallet.balance };
+        });
+    }
+
     // ─── WITHDRAWALS (Rider / Manager Payouts) ────────────────────────────
 
     async requestWithdrawal(userId: string, dto: import('./dto/create-withdrawal.dto').CreateWithdrawalDto) {
