@@ -8,6 +8,13 @@ import { phoneNumber } from "better-auth/plugins"
 
 const prisma = new PrismaClient({ adapter });
 
+// Global reference to communications service (set during module initialization)
+let communicationsService: any = null;
+
+export function setCommunicationsService(service: any) {
+  communicationsService = service;
+}
+
 export const auth = betterAuth({
     database: prismaAdapter(prisma, {
         provider: "postgresql"
@@ -56,9 +63,25 @@ export const auth = betterAuth({
     plugins: [
         expo(),
         phoneNumber({
-            // ⚡ INTEGRATION POINT: Replace console.log with your real SMS gateway
+            // ⚡ INTEGRATION POINT: Queue OTP via communications layer
             sendOTP: async ({ phoneNumber, code }) => {
-                console.log(`Sending OTP ${code} to ${phoneNumber}`);
+                if (communicationsService) {
+                    try {
+                        await communicationsService.queueSms({
+                            to: phoneNumber,
+                            message: `Your FoodApp verification code is: ${code}. Valid for 5 minutes.`,
+                            event: 'LOGIN_OTP',
+                            templateData: { code, appName: 'FoodApp' },
+                        });
+                    } catch (error) {
+                        console.error(`Failed to queue OTP SMS: ${error}`);
+                        // Fallback to console log for debugging
+                        console.log(`[FALLBACK] OTP for ${phoneNumber}: ${code}`);
+                    }
+                } else {
+                    // Fallback: service not yet initialized
+                    console.log(`[NO SERVICE] OTP for ${phoneNumber}: ${code}`);
+                }
             },
 
             signUpOnVerification: {

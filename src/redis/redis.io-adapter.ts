@@ -13,7 +13,7 @@ export class RedisIoAdapter extends IoAdapter {
 
   async connectToRedis(): Promise<void> {
     const redisUrl = this.configService.get<string>('REDIS_URL') || '';
-    
+
     // We create separate pub/sub connections because Redis pub/sub mechanism
     // requires a dedicated connection for subscribing
     const pubClient = new Redis(redisUrl);

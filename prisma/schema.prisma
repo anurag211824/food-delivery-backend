@@ -63,6 +63,7 @@ model User {
   updatedAt     DateTime       @updatedAt
   couponUsages  CouponUsage[]
   notifications Notification[]
+  communicationLogs CommunicationLog[]
   withdrawals   Withdrawal[]
 
   @@index([referredById])
@@ -500,6 +501,39 @@ model Notification {
   @@index([createdAt])
 }
 
+// 📧 Communication Log (SMS, Email, Push)
+model CommunicationLog {
+  id String @id @default(cuid())
+
+  channel      CommunicationChannel // SMS, EMAIL, PUSH
+  event        String // "LOGIN_OTP", "ORDER_CONFIRMATION", etc.
+  to           String // Phone, Email, or User ID
+  userId       String?
+  user         User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  subject      String? // For emails
+  template     String? // Template name used
+  templateData Json? // Variables passed to template
+
+  status       CommunicationStatus @default(PENDING)
+  providerName String? // "exotel", "resend", "expo"
+  providerMessageId String? // ID from provider for tracking
+  
+  attempts     Int @default(0)
+  maxAttempts  Int @default(3)
+  error        String? // Last error message
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sentAt    DateTime?
+
+  @@index([userId])
+  @@index([channel])
+  @@index([status])
+  @@index([event])
+  @@index([createdAt])
+}
+
 // ⚙️ Admin-Controlled App Configuration
 model AppConfig {
   key       String   @id // e.g. "referral_enabled", "referrer_reward"
@@ -627,4 +661,17 @@ enum RequestStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum CommunicationChannel {
+  SMS
+  EMAIL
+  PUSH
+}
+
+enum CommunicationStatus {
+  PENDING
+  SENT
+  FAILED
+  BOUNCED
 }
