@@ -8,13 +8,6 @@ import { phoneNumber } from "better-auth/plugins"
 
 const prisma = new PrismaClient({ adapter });
 
-// Global reference to communications service (set during module initialization)
-let communicationsService: any = null;
-
-export function setCommunicationsService(service: any) {
-  communicationsService = service;
-}
-
 export const auth = betterAuth({
     database: prismaAdapter(prisma, {
         provider: "postgresql"
@@ -63,25 +56,9 @@ export const auth = betterAuth({
     plugins: [
         expo(),
         phoneNumber({
-            // ⚡ INTEGRATION POINT: Queue OTP via communications layer
+            // ⚡ INTEGRATION POINT: Replace console.log with your real SMS gateway
             sendOTP: async ({ phoneNumber, code }) => {
-                if (communicationsService) {
-                    try {
-                        await communicationsService.queueSms({
-                            to: phoneNumber,
-                            message: `Your FoodApp verification code is: ${code}. Valid for 5 minutes.`,
-                            event: 'LOGIN_OTP',
-                            templateData: { code, appName: 'FoodApp' },
-                        });
-                    } catch (error) {
-                        console.error(`Failed to queue OTP SMS: ${error}`);
-                        // Fallback to console log for debugging
-                        console.log(`[FALLBACK] OTP for ${phoneNumber}: ${code}`);
-                    }
-                } else {
-                    // Fallback: service not yet initialized
-                    console.log(`[NO SERVICE] OTP for ${phoneNumber}: ${code}`);
-                }
+                console.log(`Sending OTP ${code} to ${phoneNumber}`);
             },
 
             signUpOnVerification: {
@@ -96,7 +73,7 @@ export const auth = betterAuth({
         }),
     ],
 
-    trustedOrigins: ["food-delivery-customer://", "fooddeliveryrestaurant://", "fooddeliverydriver://", "food-delivery-driver://", "food-delivery-restaurant://"],
+    trustedOrigins: ["food-delivery-customer://", "fooddeliveryrestaurant://", "fooddeliverydriver://", "food-delivery-driver://", "food-delivery-restaurant://", "http://localhost:3000"],
     
     session: {
         additionalFields: {
@@ -124,6 +101,20 @@ export const auth = betterAuth({
             referredById: {
                 type: "string",
                 required: false
+            }
+        }
+    },
+
+    advanced: {
+        // 🔥 This ensures cookies work across domain/localhost for cross-origin requests
+        useSecureCookies: process.env.NODE_ENV === "production",
+    },
+
+    cookies: {
+        sessionToken: {
+            options: {
+                sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
+                secure: process.env.NODE_ENV === "production",
             }
         }
     }
