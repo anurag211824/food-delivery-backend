@@ -145,8 +145,19 @@ export class AuthController {
             headers: fromNodeHeaders(req.headers)
         });
 
+        // ✅ This line sends the cookie-deletion instruction to the browser
         res.set(Object.fromEntries(response.headers.entries()));
-        const data: unknown = await response.json();
+        
+        let data = { success: true };
+        try {
+            const text = await response.text();
+            if (text) {
+                data = JSON.parse(text);
+            }
+        } catch (e) {
+            // response was empty, which is normal for signout
+        }
+        
         res.json(data);
     }
 
