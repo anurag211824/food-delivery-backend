@@ -5,6 +5,14 @@ import { PrismaClient } from "@prisma/client"
 import adapter from "./db-connection"
 import { expo } from "@better-auth/expo"
 import { phoneNumber } from "better-auth/plugins"
+import { bearer } from "better-auth/plugins"
+import type { CommunicationsService } from "../communications/communications.service"
+
+// ── Injected by AuthModule.onModuleInit() ──────────────────────────────────────
+let communicationsService: CommunicationsService | null = null;
+export function setCommunicationsService(svc: CommunicationsService) {
+    communicationsService = svc;
+}
 
 const prisma = new PrismaClient({ adapter });
 
@@ -54,11 +62,22 @@ export const auth = betterAuth({
     },
 
     plugins: [
+        bearer(),   // ← enables Authorization: Bearer <token> for admin web app
         expo(),
         phoneNumber({
-            // ⚡ INTEGRATION POINT: Replace console.log with your real SMS gateway
-            sendOTP: async ({ phoneNumber, code }) => {
-                console.log(`Sending OTP ${code} to ${phoneNumber}`);
+            // ⚡ INTEGRATION POINT: uses CommunicationsService when available
+            sendOTP: async ({ phoneNumber: phone, code }) => {
+                if (communicationsService) {
+                    await communicationsService.queueSms({
+                        to: phone,
+                        message: `Your OTP is ${code}. Valid for 5 minutes.`,
+                        event: 'OTP_VERIFICATION',
+                        templateData: { code },
+                    });
+                } else {
+                    // Fallback during early startup / tests
+                    console.log(`[sendOTP] ${phone} → ${code}`);
+                }
             },
 
             signUpOnVerification: {
@@ -101,20 +120,6 @@ export const auth = betterAuth({
             referredById: {
                 type: "string",
                 required: false
-            }
-        }
-    },
-
-    advanced: {
-        // 🔥 This ensures cookies work across domain/localhost for cross-origin requests
-        useSecureCookies: process.env.NODE_ENV === "production",
-    },
-
-    cookies: {
-        sessionToken: {
-            options: {
-                sameSite: process.env.NODE_ENV === "production" ? "none" : "lax",
-                secure: process.env.NODE_ENV === "production",
             }
         }
     }
