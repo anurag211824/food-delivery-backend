@@ -6,8 +6,7 @@ import { CommunicationsProcessor } from './communications.processor';
 import { MockSmsProvider } from './providers/mock-sms.provider';
 import { ExotelSmsProvider } from './providers/exotel-sms.provider';
 import { ResendEmailProvider } from './providers/resend-email.provider';
-import { ISmsProvider } from './interfaces/sms-provider.interface';
-import { IEmailProvider } from './interfaces/email-provider.interface';
+
 import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
