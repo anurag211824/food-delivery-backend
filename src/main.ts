@@ -10,20 +10,12 @@ import { RedisIoAdapter } from './redis/redis.io-adapter';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule,{logger: ['error', 'warn','log','debug']});
 
-  // 🔥 IMPORTANT: Trust proxy for Secure cookies on Render
-  (app as any).set('trust proxy', 1);
-
   // 1. CORS Configuration
   app.enableCors({
-    origin: [
-      process.env.CUSTOMER_APP_ORIGIN, 
-      process.env.RESTAURANT_APP_ORIGIN,
-      process.env.RIDER_APP_ORIGIN,
-      process.env.ADMIN_WEB_APP_ORIGIN
-    ].filter(Boolean) as string[],
+    origin: [process.env.CUSTOMER_APP_ORIGIN, "http://localhost:5173", process.env.RESTAURANT_APP_ORIGIN, process.env.RIDER_APP_ORIGIN, "http://localhost:3000"],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Cookie"],
+    allowedHeaders: ["Content-Type", "Authorization", "Cookie", "x-better-auth-token"],
   });
 
   // 2. Global Validation Pipes
