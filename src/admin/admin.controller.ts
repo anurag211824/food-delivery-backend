@@ -86,6 +86,27 @@ export class AdminController {
         return this.adminService.verifyRestaurant(id, false);
     }
 
+    // ─── PARTNER MANAGEMENT (RESTAURANTS) ───────────────────────────────────
+    @Get('restaurants')
+    @ApiOperation({
+        summary: '[Admin] List all registered restaurants',
+        description: 'Returns all restaurants regardless of active status, explicitly for admin listing.',
+    })
+    @ApiQuery({ name: 'page', required: false, example: 1 })
+    @ApiQuery({ name: 'limit', required: false, example: 20 })
+    @ApiQuery({ name: 'storeName', required: false, description: 'Search by restaurant name' })
+    async listRestaurants(
+        @Query('page') page = '1',
+        @Query('limit') limit = '20',
+        @Query('storeName') storeName?: string,
+    ) {
+        return this.adminService.listRestaurants(
+            Math.max(1, parseInt(page, 10)),
+            Math.min(100, Math.max(1, parseInt(limit, 10))),
+            storeName,
+        );
+    }
+
     // ─── LIST PARTNER REQUESTS ────────────────────────────────────────────────
     @Get('requests')
     @ApiOperation({
