@@ -88,6 +88,27 @@ export class AdminService {
         return { message: `Restaurant "${updated.name}" has been ${isVerified ? 'verified' : 'unverified'}.`, restaurant: updated };
     }
 
+    // ─── PARTNER MANAGEMENT (RESTAURANTS) ───────────────────────────────────
+    async listRestaurants(page = 1, limit = 20, storeName?: string) {
+        const skip = (page - 1) * limit;
+        const where = storeName ? { name: { contains: storeName, mode: 'insensitive' as const } } : {};
+
+        const [data, total] = await Promise.all([
+            this.prisma.restaurant.findMany({
+                where,
+                skip,
+                take: limit,
+                include: {
+                    manager: { select: { id: true, name: true, email: true, phoneNumber: true } },
+                },
+                orderBy: { createdAt: 'desc' },
+            }),
+            this.prisma.restaurant.count({ where }),
+        ]);
+
+        return { data, total, page, limit };
+    }
+
     // ─── LIST PARTNER REQUESTS ────────────────────────────────────────────────
     async listRequests(type: 'restaurant' | 'delivery', status?: RequestStatus, page = 1, limit = 20) {
         const skip = (page - 1) * limit;
