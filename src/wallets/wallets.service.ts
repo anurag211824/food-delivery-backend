@@ -33,7 +33,7 @@ export class WalletsService {
         const limitNumber = dto.limit || 10;
         const skip = (pageNumber - 1) * limitNumber;
 
-        const [data, total] = await Promise.all([
+        const [data, total, topupSum, debitSum] = await Promise.all([
             this.prisma.walletTransaction.findMany({
                 where: { walletId: wallet.id },
                 skip,
@@ -42,6 +42,14 @@ export class WalletsService {
             }),
             this.prisma.walletTransaction.count({
                 where: { walletId: wallet.id }
+            }),
+            this.prisma.walletTransaction.aggregate({
+                where: { walletId: wallet.id, direction: 'CREDIT' },
+                _sum: { amount: true }
+            }),
+            this.prisma.walletTransaction.aggregate({
+                where: { walletId: wallet.id, direction: 'DEBIT' },
+                _sum: { amount: true }
             })
         ]);
 
@@ -52,6 +60,8 @@ export class WalletsService {
                 page: pageNumber,
                 limit: limitNumber,
                 totalPages: Math.ceil(total / limitNumber),
+                totalAdded: topupSum._sum?.amount || 0,
+                totalSpent: debitSum._sum?.amount || 0,
             }
         };
     }
