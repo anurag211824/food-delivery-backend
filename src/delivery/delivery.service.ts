@@ -269,9 +269,26 @@ export class DeliveryService {
       throw new ConflictException('Order must be ON_THE_WAY to complete it.');
     }
 
-    if (order.otp !== otp) {
-      throw new BadRequestException('Invalid OTP. Please check with the customer.');
+    // ─── OTP brute-force protection ──────────────────────────────────────
+    const otpAttemptsKey = `otp_attempts:${orderId}`;
+    const MAX_OTP_ATTEMPTS = 5;
+    const currentAttempts = await this.redis.get(otpAttemptsKey);
+    if (currentAttempts && parseInt(currentAttempts) >= MAX_OTP_ATTEMPTS) {
+      throw new BadRequestException('Too many failed OTP attempts. Please wait 10 minutes before trying again.');
     }
+
+    if (order.otp !== otp) {
+      // Increment failed attempts with a 10 minute TTL
+      await this.redis.multi()
+        .incr(otpAttemptsKey)
+        .expire(otpAttemptsKey, 600)
+        .exec();
+      const remaining = MAX_OTP_ATTEMPTS - (parseInt(currentAttempts || '0') + 1);
+      throw new BadRequestException(`Invalid OTP. ${remaining > 0 ? `${remaining} attempts remaining.` : 'Account locked for 10 minutes.'}`);
+    }
+
+    // OTP correct — clear the attempt counter
+    await this.redis.del(otpAttemptsKey);
 
     const isCOD = order.paymentMode === 'COD';
 

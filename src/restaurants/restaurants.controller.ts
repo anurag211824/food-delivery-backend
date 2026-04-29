@@ -238,8 +238,8 @@ export class RestaurantsController {
   @ApiResponse({ status: 401, description: 'Not authenticated' })
   @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER or ADMIN role' })
   @ApiResponse({ status: 404, description: 'Restaurant not found' })
-  async update(@Param('id') id: string, @Body() updateDto: UpdateRestaurantDto) {
-    return this.restaurantsService.update(id, updateDto);
+  async update(@Param('id') id: string, @Body() updateDto: UpdateRestaurantDto, @Req() req: AuthenticatedRequest) {
+    return this.restaurantsService.update(id, updateDto, req.user);
   }
 
   // ─── ADMIN: DELETE ────────────────────────────────────────────────────────

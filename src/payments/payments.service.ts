@@ -1,5 +1,7 @@
-import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, Inject } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import type { Cache } from 'cache-manager';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import { VerifyPaymentDto } from './dto/verify-payment.dto';
 import { CreateSavedPaymentDto } from './dto/create-saved-payment.dto';
@@ -11,10 +13,18 @@ import Razorpay from 'razorpay';
 export class PaymentsService {
     private razorpay: any;
 
-    constructor(private prisma: PrismaService) {
+    constructor(
+        private prisma: PrismaService,
+        @Inject(CACHE_MANAGER) private cacheManager: Cache
+    ) {
+        const keyId = process.env.RAZORPAY_KEY_ID;
+        const keySecret = process.env.RAZORPAY_KEY_SECRET;
+        if (!keyId || !keySecret) {
+            console.warn('[PaymentsService] RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET not set. Payments will fail.');
+        }
         this.razorpay = new Razorpay({
-            key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_123',
-            key_secret: process.env.RAZORPAY_KEY_SECRET || 'secret123',
+            key_id: keyId || 'rzp_test_placeholder',
+            key_secret: keySecret || 'placeholder_secret',
         });
     }
 
@@ -68,7 +78,22 @@ export class PaymentsService {
     async verifyPayment(userId: string, verifyPaymentDto: VerifyPaymentDto) {
         const { razorpayOrderId, razorpayPaymentId, razorpaySignature, orderId } = verifyPaymentDto;
 
-        const secret = process.env.RAZORPAY_KEY_SECRET || 'secret123';
+        // Security: Verify the order belongs to the requesting user
+        const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+        if (!order) {
+            throw new NotFoundException('Order not found');
+        }
+        if (order.customerId !== userId) {
+            throw new BadRequestException('You are not authorized to pay for this order.');
+        }
+        if (order.isPaid) {
+            throw new BadRequestException('Order is already paid.');
+        }
+
+        const secret = process.env.RAZORPAY_KEY_SECRET;
+        if (!secret) {
+            throw new InternalServerErrorException('Payment verification is not configured. Contact support.');
+        }
 
         const hmac = crypto.createHmac('sha256', secret);
         hmac.update(razorpayOrderId + '|' + razorpayPaymentId);
@@ -100,8 +125,18 @@ export class PaymentsService {
         return { success: true, message: 'Payment verified successfully' };
     }
 
-    async handleWebhook(body: any, signature: string) {
-        const secret = process.env.RAZORPAY_WEBHOOK_SECRET || 'webhook_secret';
+    async handleWebhook(body: any, signature: string, eventId?: string) {
+        if (eventId) {
+            const isProcessed = await this.cacheManager.get(`webhook_${eventId}`);
+            if (isProcessed) {
+                return { success: true, message: 'Webhook already processed' };
+            }
+        }
+
+        const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+        if (!secret) {
+            throw new BadRequestException('Webhook verification is not configured.');
+        }
 
         const expectedSignature = crypto.createHmac('sha256', secret).update(JSON.stringify(body)).digest('hex');
 
@@ -140,7 +175,12 @@ export class PaymentsService {
             });
         }
 
-        return { received: true };
+        if (eventId) {
+            // Cache for 24 hours to prevent replays
+            await this.cacheManager.set(`webhook_${eventId}`, true, 86400000);
+        }
+
+        return { success: true };
     }
 
     // --- SAVED PAYMENT METHODS ---

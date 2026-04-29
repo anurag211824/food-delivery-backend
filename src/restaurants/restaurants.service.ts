@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException, Inject } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException, Inject } from '@nestjs/common';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -287,17 +287,23 @@ export class RestaurantsService {
   }
 
   // 3. MANAGEMENT TOOLS
-  async update(id: string, dto: UpdateRestaurantDto) {
-    try {
-      const updated = await this.prisma.restaurant.update({
-        where: { id },
-        data: dto
-      });
-      await this.cacheManager.clear();
-      return updated;
-    } catch (error) {
+  async update(id: string, dto: UpdateRestaurantDto, actor?: Pick<User, 'id' | 'role'>) {
+    const restaurant = await this.prisma.restaurant.findUnique({ where: { id } });
+    if (!restaurant) {
       throw new NotFoundException(`Restaurant ${id} not found`);
     }
+
+    // Security: Only the owning manager or an admin can update
+    if (actor && actor.role !== Role.ADMIN && restaurant.managerId !== actor.id) {
+      throw new ForbiddenException('You do not have permission to update this restaurant.');
+    }
+
+    const updated = await this.prisma.restaurant.update({
+      where: { id },
+      data: dto
+    });
+    await this.cacheManager.clear();
+    return updated;
   }
 
   async remove(id: string) {

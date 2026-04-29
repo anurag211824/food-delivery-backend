@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Patch, Body, Req, UseGuards, Query, Param } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { WalletsService } from './wallets.service';
 import { TopupWalletDto } from './dto/topup-wallet.dto';
@@ -36,6 +37,7 @@ export class WalletsController {
     @Post('topup')
     @ApiOperation({ summary: 'Initialize Wallet Topup via Razorpay' })
     @ApiResponse({ status: 201, description: 'Razorpay topup order created' })
+    @Throttle({ default: { ttl: 60000, limit: 10 } }) // Stricter: 10 topups per minute
     async topup(@Req() req: AuthenticatedRequest, @Body() dto: TopupWalletDto) {
         return this.walletsService.topup(req.user.id, dto);
     }
@@ -44,13 +46,14 @@ export class WalletsController {
     @ApiOperation({ summary: 'Verify Wallet Topup Signature' })
     @ApiResponse({ status: 200, description: 'Topup verified and money added to wallet' })
     async verifyTopup(@Req() req: AuthenticatedRequest, @Body() verifyDto: VerifyTopupDto) {
-        return this.walletsService.verifyTopup(verifyDto);
+        return this.walletsService.verifyTopup(req.user.id, verifyDto);
     }
 
     // ─── WITHDRAWALS ──────────────────────────────────────────────────────
     @Post('withdrawals')
     @ApiOperation({ summary: 'Request wallet withdrawal (Payout)' })
     @ApiResponse({ status: 201, description: 'Withdrawal requested, funds held' })
+    @Throttle({ default: { ttl: 60000, limit: 5 } }) // Stricter: 5 withdrawals per minute
     async requestWithdrawal(
         @Req() req: AuthenticatedRequest,
         @Body() dto: CreateWithdrawalDto,

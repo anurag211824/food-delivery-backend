@@ -99,10 +99,37 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // ─── 2. CLIENT ROOM MANAGEMENT ──────────────────────────────────────────
 
   @SubscribeMessage('join_order_tracking')
-  handleJoinTracking(
+  async handleJoinTracking(
     @ConnectedSocket() client: Socket,
     @MessageBody() orderId: string,
   ) {
+    const user = client.data?.user;
+    if (!user) {
+      return { event: 'error', data: 'Not authenticated' };
+    }
+
+    // Security: Verify the user is a participant of this order
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        restaurant: { select: { managerId: true } },
+        driver: { select: { userId: true } },
+      },
+    });
+
+    if (!order) {
+      return { event: 'error', data: 'Order not found' };
+    }
+
+    const isCustomer = order.customerId === user.id;
+    const isManager = order.restaurant.managerId === user.id;
+    const isDriver = order.driver?.userId === user.id;
+    const isAdmin = user.role === 'ADMIN';
+
+    if (!isCustomer && !isManager && !isDriver && !isAdmin) {
+      return { event: 'error', data: 'You are not authorized to track this order' };
+    }
+
     const roomName = `order_${orderId}`;
     client.join(roomName);
     this.logger.log(`Client ${client.id} joined tracking for order: ${orderId}`);
@@ -123,17 +150,30 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // ─── 3. DRIVER LIVE LOCATION ─────────────────────────────────────────────
 
   @SubscribeMessage('driver_location_update')
-  handleLocationUpdate(
+  async handleLocationUpdate(
     @ConnectedSocket() client: Socket,
     @MessageBody() payload: LocationPayload,
   ) {
+    const user = client.data?.user;
+    if (!user) return;
+
+    // Security check: Only allow the assigned driver to update the order location
+    const order = await this.prisma.order.findUnique({
+      where: { id: payload.orderId },
+      include: { driver: true }
+    });
+
+    if (!order || order.driver?.userId !== user.id) {
+      this.logger.warn(`User ${user.id} attempted to spoof location for order ${payload.orderId}`);
+      return { event: 'error', data: 'Unauthorized to update location for this order' };
+    }
+
     const roomName = `order_${payload.orderId}`;
 
     // Broadcast this location to the specific room (customer + restaurant)
     this.server.to(roomName).emit('order_location_update', payload);
 
     // Update Redis Geo index for fast nearest-driver lookups
-    const user = client.data?.user;
     if (user?.id) {
       // 1. Update the coordinate in the geo index
       this.redis.geoadd('driver_locations', payload.lng, payload.lat, user.id)

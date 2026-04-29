@@ -37,13 +37,15 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
             where: {
                 status: { in: ['PLACED', 'READY'] },
                 placedAt: { lt: cutoff },
+                // Safety: Never cancel orders that have an assigned driver actively working
+                driverId: null,
             },
             include: { restaurant: true },
         });
 
         if (staleOrders.length === 0) return;
 
-        this.logger.warn(`Found ${staleOrders.length} stale PLACED orders. Cleaning up...`);
+        this.logger.warn(`Found ${staleOrders.length} stale unassigned orders. Cleaning up...`);
 
         for (const order of staleOrders) {
             try {

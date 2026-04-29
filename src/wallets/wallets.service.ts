@@ -12,9 +12,14 @@ export class WalletsService {
     private razorpay: any;
 
     constructor(private prisma: PrismaService) {
+        const keyId = process.env.RAZORPAY_KEY_ID;
+        const keySecret = process.env.RAZORPAY_KEY_SECRET;
+        if (!keyId || !keySecret) {
+            console.warn('[WalletsService] RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET not set. Razorpay wallet topups will fail.');
+        }
         this.razorpay = new Razorpay({
-            key_id: process.env.RAZORPAY_KEY_ID || 'rzp_test_123',
-            key_secret: process.env.RAZORPAY_KEY_SECRET || 'secret123',
+            key_id: keyId || 'rzp_test_placeholder',
+            key_secret: keySecret || 'placeholder_secret',
         });
     }
 
@@ -101,9 +106,12 @@ export class WalletsService {
         }
     }
 
-    async verifyTopup(verifyDto: VerifyTopupDto) {
+    async verifyTopup(userId: string, verifyDto: VerifyTopupDto) {
         const { razorpayOrderId, razorpayPaymentId, razorpaySignature } = verifyDto;
-        const secret = process.env.RAZORPAY_KEY_SECRET || 'secret123';
+        const secret = process.env.RAZORPAY_KEY_SECRET;
+        if (!secret) {
+            throw new InternalServerErrorException('Payment verification is not configured. Contact support.');
+        }
 
         const hmac = crypto.createHmac('sha256', secret);
         hmac.update(razorpayOrderId + '|' + razorpayPaymentId);
@@ -119,10 +127,16 @@ export class WalletsService {
 
         const topupRequest = await this.prisma.walletTopupRequest.findUnique({
             where: { razorpayOrderId },
+            include: { wallet: true },
         });
 
         if (!topupRequest || topupRequest.status === PaymentStatus.SUCCESS) {
             throw new BadRequestException('Topup request not found or already processed');
+        }
+
+        // Security: Verify the topup belongs to the requesting user
+        if (topupRequest.wallet.userId !== userId) {
+            throw new BadRequestException('You are not authorized to verify this topup.');
         }
 
         return this.prisma.$transaction(async (prisma) => {
@@ -153,12 +167,20 @@ export class WalletsService {
     }
 
     async charge(userId: string, amount: number, reason: string) {
+        // Ensure wallet exists before entering transaction
         const wallet = await this.getBalance(userId);
-        if (wallet.balance < amount) {
-            throw new BadRequestException('Insufficient wallet balance');
-        }
 
         return this.prisma.$transaction(async (prisma) => {
+            // Row-level lock: re-read balance inside the transaction to prevent double-spend
+            const [lockedWallet] = await prisma.$queryRawUnsafe<any[]>(
+                `SELECT * FROM "Wallet" WHERE "id" = $1 FOR UPDATE`,
+                wallet.id,
+            );
+
+            if (!lockedWallet || lockedWallet.balance < amount) {
+                throw new BadRequestException('Insufficient wallet balance');
+            }
+
             const transaction = await prisma.walletTransaction.create({
                 data: {
                     walletId: wallet.id,
@@ -230,6 +252,14 @@ export class WalletsService {
     // ─── WITHDRAWALS (Rider / Manager Payouts) ────────────────────────────
 
     async requestWithdrawal(userId: string, dto: import('./dto/create-withdrawal.dto').CreateWithdrawalDto) {
+        // Prevent multiple pending withdrawals
+        const pending = await this.prisma.withdrawal.findFirst({
+            where: { userId, status: 'PENDING' }
+        });
+        if (pending) {
+            throw new BadRequestException('You already have a pending withdrawal request.');
+        }
+
         // 1. Immediately deduct the funds (Lock in)
         await this.charge(userId, dto.amount, 'WITHDRAWAL_HOLD');
 

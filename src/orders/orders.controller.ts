@@ -1,6 +1,7 @@
 import {
   Controller, Get, Post, Body, Patch, Delete, Param, Req, UseGuards, Query
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiBody } from '@nestjs/swagger';
 import { OrderStatus, Role } from '@prisma/client';
 import { OrdersService } from './orders.service';
@@ -54,13 +55,14 @@ export class OrdersController {
   @Get(":id")
   @ApiOperation({ summary: "get order data by orderid" })
   @ApiResponse({ status: 200, description: "order data" })
-  async getOrder(@Param('id') id: string) {
-    return this.ordersService.getOrderById(id);
+  async getOrder(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    return this.ordersService.getOrderById(id, req.user);
   }
 
   @Post()
   @ApiOperation({ summary: 'Place a new order (Customer)' })
   @ApiResponse({ status: 201, description: 'Order created successfully.' })
+  @Throttle({ default: { ttl: 60000, limit: 5 } }) // Max 5 orders per minute per user
   async create(@Req() req: AuthenticatedRequest, @Body() createOrderDto: CreateOrderDto) {
     // req.user is now guaranteed to exist because of the Guard
     const user = (req as any).user;
@@ -68,6 +70,18 @@ export class OrdersController {
   }
 
 
+
+  @Post('bulk-status')
+  @ApiOperation({ summary: 'Bulk update order status (Manager/Admin Only)' })
+  @ApiBody({ type: BulkUpdateOrderStatusDto })
+  @UseGuards(RolesGuard)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
+  async bulkUpdateStatus(
+    @Body() dto: BulkUpdateOrderStatusDto,
+    @Req() req: AuthenticatedRequest
+  ) {
+    return this.ordersService.bulkUpdateStatus(dto.orderIds, dto.status, req.user);
+  }
 
   @Patch(':id/status')
   @ApiOperation({ summary: 'Update order status (Manager/Admin Only)' })
@@ -81,18 +95,6 @@ export class OrdersController {
     @Req() req: AuthenticatedRequest
   ) {
     return this.ordersService.updateStatus(id, dto.status, req.user);
-  }
-
-  @Patch('bulk-status')
-  @ApiOperation({ summary: 'Bulk update order status (Manager/Admin Only)' })
-  @ApiBody({ type: BulkUpdateOrderStatusDto })
-  @UseGuards(RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
-  async bulkUpdateStatus(
-    @Body() dto: BulkUpdateOrderStatusDto,
-    @Req() req: AuthenticatedRequest
-  ) {
-    return this.ordersService.bulkUpdateStatus(dto.orderIds, dto.status, req.user);
   }
 
   // ─── CUSTOMER CANCEL ────────────────────────────────────────────────────

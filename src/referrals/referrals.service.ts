@@ -87,9 +87,6 @@ export class ReferralsService {
     const newUser = await this.prisma.user.findUnique({ where: { id: newUserId } });
     if (!newUser) return;
 
-    const REFERRER_REWARD = 100;
-    const REFERRED_REWARD = 50;
-
     // Read live policy from DB — never throw, this is an internal silent method
     const policy = await this.appConfigService.getReferralPolicy();
 
@@ -108,11 +105,24 @@ export class ReferralsService {
     if (finalUser?.referredById !== referrer.id) return;
 
     // Credit the inviter and the invitee using independent transactions
+    // Idempotency: Use unique transaction types and check for existing credits
     if (policy.referrerReward > 0) {
-      await this.walletsService.addFunds(referrer.id, policy.referrerReward, `REFERRAL_BONUS_FOR_INVITING_${newUserId}`);
+      const referrerReason = `REFERRAL_BONUS_FOR_INVITING_${newUserId}`;
+      const existingReferrerReward = await this.prisma.walletTransaction.findFirst({
+        where: { wallet: { userId: referrer.id }, type: referrerReason },
+      });
+      if (!existingReferrerReward) {
+        await this.walletsService.addFunds(referrer.id, policy.referrerReward, referrerReason);
+      }
     }
     if (policy.referredReward > 0) {
-      await this.walletsService.addFunds(newUserId, policy.referredReward, `REFERRAL_BONUS_WELCOME`);
+      const referredReason = `REFERRAL_BONUS_WELCOME_${newUserId}`;
+      const existingReferredReward = await this.prisma.walletTransaction.findFirst({
+        where: { wallet: { userId: newUserId }, type: referredReason },
+      });
+      if (!existingReferredReward) {
+        await this.walletsService.addFunds(newUserId, policy.referredReward, referredReason);
+      }
     }
   }
 
@@ -132,10 +142,13 @@ export class ReferralsService {
 
     if (!user) throw new NotFoundException('User not found');
 
+    // Use live policy for earnings estimate instead of hardcoded value
+    const policy = await this.appConfigService.getReferralPolicy();
+
     return {
       myCode: user.referralCode,
       totalReferrals: user.referrals.length,
-      earningsEst: user.referrals.length * 100, // Roughly 100 per referral
+      earningsEst: user.referrals.length * policy.referrerReward,
       referrals: user.referrals
     };
   }

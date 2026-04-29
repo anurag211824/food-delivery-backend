@@ -1,4 +1,5 @@
 import { Controller, Post, Get, Patch, Body, Req, Res, Param, NotFoundException, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
     ApiTags, ApiOperation, ApiResponse, ApiBearerAuth,
     ApiBody, ApiParam
@@ -210,6 +211,7 @@ export class AuthController {
         }
     })
     @ApiResponse({ status: 200, description: 'OTP sent successfully', schema: { example: { success: true } } })
+    @Throttle({ default: { ttl: 60000, limit: 3 } }) // 3 OTP requests per minute
     async sendOTP(@Body() body: { phoneNumber: string }, @Req() req: Request, @Res() res: Response) {
         const response = await auth.api.sendPhoneNumberOTP({
             body: { phoneNumber: body.phoneNumber },
@@ -257,6 +259,7 @@ export class AuthController {
         }
     })
     @ApiResponse({ status: 400, description: 'Invalid or expired OTP' })
+    @Throttle({ default: { ttl: 60000, limit: 5 } }) // 5 verification attempts per minute
     async phoneSignIn(
         @Body() body: { phoneNumber: string; code: string; invitedByCode?: string },
         @Req() req: Request,

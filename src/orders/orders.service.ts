@@ -91,8 +91,8 @@ export class OrdersService {
     const driverTip = dto.driverTip ?? 0;
     const totalAmount = Math.round((itemTotal + tax + deliveryCharge + platformFee + driverTip - discount) * 100) / 100;
 
-    // Generate a simple 4 digit OTP for delivery verification
-    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    // Generate a secure 6 digit OTP for delivery verification
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
     // ─── Step 1: Create the order atomically (no wallet call inside) ──────────
     const order = await this.prisma.$transaction(async (tx) => {
@@ -357,7 +357,7 @@ export class OrdersService {
     };
   }
 
-  async getOrderById(orderId: string) {
+  async getOrderById(orderId: string, actor?: Pick<User, 'id' | 'role'>) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
@@ -388,6 +388,18 @@ export class OrdersService {
     });
 
     if (!order) throw new NotFoundException("Order not found");
+
+    // Security: Only allow access to the customer, restaurant manager, assigned driver, or admin
+    if (actor) {
+      const isCustomer = order.customerId === actor.id;
+      const isManager = order.restaurant.managerId === actor.id;
+      const isDriver = order.driver?.userId === actor.id;
+      const isAdmin = actor.role === Role.ADMIN;
+
+      if (!isCustomer && !isManager && !isDriver && !isAdmin) {
+        throw new ForbiddenException('You do not have permission to view this order.');
+      }
+    }
 
     // Flatten driver and address for easier frontend consumption
     const customerAddress = order.customer.addresses[0] || null;
@@ -569,6 +581,10 @@ export class OrdersService {
 
   // ─── SHARED CANCELLATION + AUTO-REFUND LOGIC ───────────────────────────
   private async processOrderCancellation(order: any, reason: string) {
+    if (order.status === 'DELIVERED') {
+      throw new BadRequestException('Cannot cancel a DELIVERED order. Financial settlement has already occurred.');
+    }
+
     // 1. Cancel the order
     const cancelledOrder = await this.prisma.order.update({
       where: { id: order.id },

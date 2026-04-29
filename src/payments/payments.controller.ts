@@ -32,8 +32,12 @@ export class PaymentsController {
 
     @Post('webhook')
     @ApiExcludeEndpoint() // Hide from swagger
-    async handleWebhook(@Headers('x-razorpay-signature') signature: string, @Body() body: any) {
-        return this.paymentsService.handleWebhook(body, signature);
+    async handleWebhook(
+        @Headers('x-razorpay-signature') signature: string,
+        @Headers('x-razorpay-event-id') eventId: string,
+        @Body() body: any
+    ) {
+        return this.paymentsService.handleWebhook(body, signature, eventId);
     }
 
     // --- SAVED PAYMENT METHODS ---
