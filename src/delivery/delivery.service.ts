@@ -325,10 +325,11 @@ export class DeliveryService {
     }
 
     // ─── COD SETTLEMENT ───────────────────────────────────────────────────
-    // Rider collected totalAmount cash. They keep driverEarnings.
-    // The rest must be remitted to the platform — debit via forceCharge (allows negative).
+    // Rider collected totalAmount cash. Because we already credited their digital 
+    // wallet with driverEarnings above, they owe the platform the full totalAmount 
+    // they collected in cash. We debit this via forceCharge (allows negative).
     if (isCOD) {
-      const cashToRemit = order.totalAmount - driverEarnings;
+      const cashToRemit = order.totalAmount;
       if (cashToRemit > 0) {
         await this.walletsService.forceCharge(
           userId,
