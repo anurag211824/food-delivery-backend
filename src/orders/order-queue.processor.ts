@@ -31,58 +31,68 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
 
     // ── Startup: Clean up any orders stuck in PLACED from before restart ───
     async onModuleInit() {
-        const cutoff = new Date(Date.now() - 10 * 60 * 1000); // 10 minutes ago
+        try {
+            const cutoff = new Date(Date.now() - 10 * 60 * 1000); // 10 minutes ago
 
-        const staleOrders = await this.prisma.order.findMany({
-            where: {
-                status: { in: ['PLACED', 'READY'] },
-                placedAt: { lt: cutoff },
-                // Safety: Never cancel orders that have an assigned driver actively working
-                driverId: null,
-            },
-            include: { restaurant: true },
-        });
+            const staleOrders = await this.prisma.order.findMany({
+                where: {
+                    status: { in: ['PLACED', 'READY'] },
+                    placedAt: { lt: cutoff },
+                    // Safety: Never cancel orders that have an assigned driver actively working
+                    driverId: null,
+                },
+                include: { restaurant: true },
+            });
 
-        if (staleOrders.length === 0) return;
+            if (staleOrders.length === 0) return;
 
-        this.logger.warn(`Found ${staleOrders.length} stale unassigned orders. Cleaning up...`);
+            this.logger.warn(`Found ${staleOrders.length} stale unassigned orders. Cleaning up...`);
 
-        for (const order of staleOrders) {
-            try {
-                const reason = 'SYSTEM_TIMEOUT: Restaurant did not respond in time (recovered on startup).';
+            for (const order of staleOrders) {
+                try {
+                    const reason = 'SYSTEM_TIMEOUT: Restaurant did not respond in time (recovered on startup).';
 
-                await this.prisma.order.update({
-                    where: { id: order.id },
-                    data: { status: 'CANCELLED', cancellationReason: reason },
-                });
-
-                if (order.isPaid) {
-                    await this.walletsService.addFunds(
-                        order.customerId,
-                        order.totalAmount,
-                        `REFUND_AUTO_CANCEL:${order.id}`,
-                    );
-                    await this.prisma.refund.create({
-                        data: {
-                            orderId: order.id,
-                            amount: order.totalAmount,
-                            reason: `AUTO_CANCEL_REFUND: ${reason}`,
-                            status: 'PROCESSED',
-                            isAuto: true,
-                        },
+                    await this.prisma.order.update({
+                        where: { id: order.id },
+                        data: { status: 'CANCELLED', cancellationReason: reason },
                     });
+
+                    if (order.isPaid) {
+                        await this.walletsService.addFunds(
+                            order.customerId,
+                            order.totalAmount,
+                            `REFUND_AUTO_CANCEL:${order.id}`,
+                        );
+                        await this.prisma.refund.create({
+                            data: {
+                                orderId: order.id,
+                                amount: order.totalAmount,
+                                reason: `AUTO_CANCEL_REFUND: ${reason}`,
+                                status: 'PROCESSED',
+                                isAuto: true,
+                            },
+                        });
+                    }
+
+                    this.eventsGateway.emitOrderStatusChange(order.id, 'CANCELLED');
+                    this.eventsGateway.cleanupOrderRoom(order.id);
+
+                    this.logger.log(`Startup cleanup: cancelled stale order ${order.id} (placed ${order.placedAt.toISOString()})`);
+                } catch (err) {
+                    this.logger.error(`Failed to cleanup stale order ${order.id}:`, err);
                 }
-
-                this.eventsGateway.emitOrderStatusChange(order.id, 'CANCELLED');
-                this.eventsGateway.cleanupOrderRoom(order.id);
-
-                this.logger.log(`Startup cleanup: cancelled stale order ${order.id} (placed ${order.placedAt.toISOString()})`);
-            } catch (err) {
-                this.logger.error(`Failed to cleanup stale order ${order.id}:`, err);
             }
-        }
 
-        this.logger.log(`Startup cleanup complete. ${staleOrders.length} stale orders cancelled.`);
+            this.logger.log(`Startup cleanup complete. ${staleOrders.length} stale orders cancelled.`);
+        } catch (err) {
+            // ⚠️ DO NOT REMOVE this try/catch.
+            // The Neon DB is unreachable at startup — without this, the entire NestJS
+            // process crashes on boot. This allows the server to start normally and
+            // serve requests even when the DB is temporarily unavailable.
+            this.logger.warn(
+                `[onModuleInit] Stale-order cleanup skipped — DB unreachable: ${(err as Error).message}`,
+            );
+        }
     }
 
     async process(job: Job<any, any, string>): Promise<any> {
