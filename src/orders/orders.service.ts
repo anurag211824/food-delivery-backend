@@ -169,30 +169,6 @@ export class OrdersService {
     // ─── Step 6: Auto-join customer into this order's tracking room ──────
     this.eventsGateway.joinUserToOrderRoom(userId, order.id);
 
-    // ─── Step 7: Queue order confirmation email ───────────────────────────
-    const customer = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (customer?.email) {
-      try {
-        await this.communicationsService.queueEmail({
-          to: customer.email,
-          subject: `Order Confirmation #${order.id}`,
-          template: 'order_confirmation',
-          event: 'ORDER_CONFIRMATION',
-          userId,
-          templateData: {
-            userName: customer.name,
-            orderId: order.id,
-            restaurantName: restaurant.name,
-            totalAmount: order.totalAmount,
-            estimatedDeliveryTime: '30-45 mins',
-          },
-        });
-      } catch (error) {
-        // Log but don't fail the order if email queueing fails
-        console.error(`Failed to queue order confirmation email: ${error}`);
-      }
-    }
-
     // ─── Step 8: Schedule Auto-Cancel for Unpaid Orders ──────────────────────
     if (!order.isPaid && order.paymentMode !== 'COD') {
       await this.orderQueue.add(
