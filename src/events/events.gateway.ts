@@ -157,21 +157,25 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const user = client.data?.user;
     if (!user) return;
 
-    // Security check: Only allow the assigned driver to update the order location
-    const order = await this.prisma.order.findUnique({
-      where: { id: payload.orderId },
-      include: { driver: true }
-    });
+    const isAvailabilityUpdate = payload.orderId.startsWith('availability:');
 
-    if (!order || order.driver?.userId !== user.id) {
-      this.logger.warn(`User ${user.id} attempted to spoof location for order ${payload.orderId}`);
-      return { event: 'error', data: 'Unauthorized to update location for this order' };
+    if (!isAvailabilityUpdate) {
+      // Security check: Only allow the assigned driver to update the order location
+      const order = await this.prisma.order.findUnique({
+        where: { id: payload.orderId },
+        include: { driver: true }
+      });
+
+      if (!order || order.driver?.userId !== user.id) {
+        this.logger.warn(`User ${user.id} attempted to spoof location for order ${payload.orderId}`);
+        return { event: 'error', data: 'Unauthorized to update location for this order' };
+      }
+
+      const roomName = `order_${payload.orderId}`;
+
+      // Broadcast this location to the specific room (customer + restaurant)
+      this.server.to(roomName).emit('order_location_update', payload);
     }
-
-    const roomName = `order_${payload.orderId}`;
-
-    // Broadcast this location to the specific room (customer + restaurant)
-    this.server.to(roomName).emit('order_location_update', payload);
 
     // Update Redis Geo index for fast nearest-driver lookups
     if (user?.id) {
