@@ -304,6 +304,23 @@ export class OrdersService {
     } else if (status === 'DELIVERED') {
       title = 'Order Delivered! 🎉';
       body = 'Enjoy your meal!';
+
+      // 📧 Send Order Delivered Email
+      const deliveredCustomer = await this.prisma.user.findUnique({ where: { id: order.customerId } });
+      if (deliveredCustomer?.email) {
+        this.communicationsService.queueEmail({
+          to: deliveredCustomer.email,
+          subject: `Order Delivered! #${orderId}`,
+          template: 'order_delivered',
+          event: 'ORDER_DELIVERED',
+          userId: order.customerId,
+          templateData: {
+            userName: deliveredCustomer.name,
+            orderId: orderId,
+            restaurantName: order.restaurant.name,
+          },
+        }).catch(e => console.error(`Failed to queue order delivered email: ${e}`));
+      }
     } else if (status === 'CANCELLED') {
       title = 'Order Cancelled ❌';
       body = 'Your order has been cancelled.';
@@ -615,6 +632,24 @@ export class OrdersService {
           isAuto: true,
         },
       });
+
+      // 📧 Send Refund Processed Email
+      const refundCustomer = await this.prisma.user.findUnique({ where: { id: order.customerId } });
+      if (refundCustomer?.email) {
+        this.communicationsService.queueEmail({
+          to: refundCustomer.email,
+          subject: `Refund Processed for Order #${order.id}`,
+          template: 'refund_processed',
+          event: 'REFUND_PROCESSED',
+          userId: order.customerId,
+          templateData: {
+            userName: refundCustomer.name,
+            refundAmount: order.totalAmount,
+            orderId: order.id,
+            reason,
+          },
+        }).catch(e => console.error(`Failed to queue refund email: ${e}`));
+      }
     }
 
     // 3. Reset and notify assigned driver if any

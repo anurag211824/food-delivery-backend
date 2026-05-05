@@ -57,6 +57,22 @@ export const auth = betterAuth({
                         },
                     };
                 },
+                after: async (user) => {
+                    // 📧 Send Welcome Email to new users with a real email
+                    if (communicationsService && user.email && !user.email.endsWith('@phone.foodapp.local')) {
+                        communicationsService.queueEmail({
+                            to: user.email,
+                            subject: 'Welcome to FoodApp! 🎉',
+                            template: 'welcome',
+                            event: 'WELCOME_EMAIL',
+                            userId: user.id,
+                            templateData: {
+                                userName: user.name || 'there',
+                                appName: 'FoodApp',
+                            },
+                        }).catch((e) => console.error(`Failed to queue welcome email: ${e}`));
+                    }
+                },
             },
         },
     },

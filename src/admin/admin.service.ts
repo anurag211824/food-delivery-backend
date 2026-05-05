@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CommunicationsService } from '../communications/communications.service';
 import { auth } from "../lib/auth";
 
 @Injectable()
@@ -11,6 +12,7 @@ export class AdminService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly notifications: NotificationsService,
+        private readonly communications: CommunicationsService,
     ) { }
 
     // ─── LIST USERS ───────────────────────────────────────────────────────────
@@ -207,6 +209,22 @@ export class AdminService {
             'PARTNER_REQUEST_APPROVED'
         );
 
+        // 📧 Send Partner Approval Email
+        const restaurantUser = await this.prisma.user.findUnique({ where: { id: request.userId } });
+        if (restaurantUser?.email) {
+            this.communications.queueEmail({
+                to: restaurantUser.email,
+                subject: `Your Restaurant "${request.restaurantName}" is Approved! 🎉`,
+                template: 'onboarding_approved',
+                event: 'PARTNER_APPROVED',
+                userId: request.userId,
+                templateData: {
+                    partnerName: restaurantUser.name,
+                    partnerType: 'restaurant',
+                },
+            }).catch(e => console.error(`Failed to queue restaurant approval email: ${e}`));
+        }
+
         return {
             message: 'Restaurant request approved. Restaurant profile created and user promoted to RESTAURANT_MANAGER.',
             request: updatedRequest,
@@ -279,6 +297,22 @@ export class AdminService {
             `Congratulations! Your application to become a delivery partner has been approved.`,
             'PARTNER_REQUEST_APPROVED'
         );
+
+        // 📧 Send Partner Approval Email
+        const driverUser = await this.prisma.user.findUnique({ where: { id: request.userId } });
+        if (driverUser?.email) {
+            this.communications.queueEmail({
+                to: driverUser.email,
+                subject: 'You are now a Delivery Partner! 🛵',
+                template: 'onboarding_approved',
+                event: 'PARTNER_APPROVED',
+                userId: request.userId,
+                templateData: {
+                    partnerName: driverUser.name,
+                    partnerType: 'delivery',
+                },
+            }).catch(e => console.error(`Failed to queue delivery approval email: ${e}`));
+        }
 
         return {
             message: 'Delivery request approved. Driver profile created and user promoted to DELIVERY_PARTNER.',
