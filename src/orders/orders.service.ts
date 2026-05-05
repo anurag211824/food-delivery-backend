@@ -383,7 +383,8 @@ export class OrdersService {
               take: 1
             }
           } 
-        }
+        },
+        review: true
       }
     });
 
