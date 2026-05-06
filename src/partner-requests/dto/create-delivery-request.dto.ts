@@ -34,4 +34,14 @@ export class CreateDeliveryRequestDto {
     @IsOptional()
     @IsString()
     profilePicUrl?: string;
+
+    @ApiPropertyOptional({ example: '+1234567890' })
+    @IsOptional()
+    @IsString()
+    phoneNumber?: string;
+
+    @ApiPropertyOptional({ example: 'driver@example.com' })
+    @IsOptional()
+    @IsString()
+    email?: string;
 }
