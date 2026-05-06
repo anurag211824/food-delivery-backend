@@ -274,10 +274,14 @@ export class AdminService {
                 where: { id: requestId },
                 data: { status: RequestStatus.APPROVED },
             }),
-            // 2. Update user role to DELIVERY_PARTNER
+            // 2. Update user role and contact info
             this.prisma.user.update({
                 where: { id: request.userId },
-                data: { role: Role.DELIVERY_PARTNER },
+                data: { 
+                    role: Role.DELIVERY_PARTNER,
+                    ...(request.phoneNumber ? { phoneNumber: request.phoneNumber } : {}),
+                    ...(request.email ? { email: request.email } : {}),
+                },
             }),
             // 3. Create the actual DriverProfile from the request form data
             this.prisma.driverProfile.create({
