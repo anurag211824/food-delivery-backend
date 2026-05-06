@@ -55,10 +55,10 @@ export class ResendEmailProvider implements IEmailProvider {
       const data = await response.json() as any;
       const messageId = data?.id;
 
-      this.logger.debug(`Email sent via Resend. Message ID: ${messageId}`);
+      this.logger.log(`✅ Email sent successfully via Resend to ${to}. Message ID: ${messageId}`);
       return messageId || 'resend-' + Date.now();
     } catch (error) {
-      this.logger.error(`Resend email error: ${error}`);
+      this.logger.error(`❌ Resend email error for ${to}: ${error}`);
       throw error;
     }
   }

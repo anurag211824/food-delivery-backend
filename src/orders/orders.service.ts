@@ -211,7 +211,10 @@ export class OrdersService {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
-        restaurant: true
+        restaurant: true,
+        items: {
+          include: { menuItem: true }
+        }
       }
     });
 
@@ -294,6 +297,20 @@ export class OrdersService {
             userName: deliveredCustomer.name,
             orderId: orderId,
             restaurantName: order.restaurant.name,
+            totalAmount: order.totalAmount,
+            reviewUrl: `${process.env.CUSTOMER_APP_SCHEME}://(tabs)/orders/${orderId}?openReview=true`,
+            // Bill Details
+            items: order.items.map(item => ({
+              name: item.menuItem.name,
+              quantity: item.quantity,
+              price: item.price,
+            })),
+            itemTotal: order.itemTotal,
+            tax: order.tax,
+            deliveryCharge: order.deliveryCharge,
+            platformFee: order.platformFee,
+            discount: order.discount,
+            driverTip: order.driverTip,
           },
         }).catch(e => console.error(`Failed to queue order delivered email: ${e}`));
       }

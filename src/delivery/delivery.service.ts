@@ -7,6 +7,7 @@ import { DriverStatus } from '@prisma/client';
 import { EventsGateway } from '../events/events.gateway';
 import { WalletsService } from '../wallets/wallets.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { CommunicationsService } from '../communications/communications.service';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.provider';
 
@@ -17,6 +18,7 @@ export class DeliveryService {
     private readonly eventsGateway: EventsGateway,
     private readonly walletsService: WalletsService,
     private readonly notificationsService: NotificationsService,
+    private readonly communicationsService: CommunicationsService,
     @InjectQueue('orders') private readonly orderQueue: Queue,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) { }
@@ -257,7 +259,12 @@ export class DeliveryService {
 
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { restaurant: true },
+      include: { 
+        restaurant: true,
+        items: {
+          include: { menuItem: true }
+        }
+      },
     });
     if (!order) throw new NotFoundException('Order not found.');
 
@@ -387,6 +394,37 @@ export class DeliveryService {
       'ORDER_UPDATE',
       { orderId, status: 'DELIVERED' }
     ).catch(e => console.error('Failed to send delivery complete push', e));
+
+    // 📧 Send Order Delivered Email
+    const deliveredCustomer = await this.prisma.user.findUnique({ where: { id: order.customerId } });
+    if (deliveredCustomer?.email) {
+      this.communicationsService.queueEmail({
+        to: deliveredCustomer.email,
+        subject: `Order Delivered! #${orderId}`,
+        template: 'order_delivered',
+        event: 'ORDER_DELIVERED',
+        userId: order.customerId,
+        templateData: {
+          userName: deliveredCustomer.name,
+          orderId: orderId,
+          restaurantName: order.restaurant.name,
+          totalAmount: order.totalAmount,
+          reviewUrl: `${process.env.CUSTOMER_APP_SCHEME}://(tabs)/orders/${orderId}?openReview=true`,
+          // Bill Details
+          items: order.items.map(item => ({
+            name: item.menuItem.name,
+            quantity: item.quantity,
+            price: item.price,
+          })),
+          itemTotal: order.itemTotal,
+          tax: order.tax,
+          deliveryCharge: order.deliveryCharge,
+          platformFee: order.platformFee,
+          discount: order.discount,
+          driverTip: order.driverTip,
+        },
+      }).catch(e => console.error(`Failed to queue order delivered email: ${e}`));
+    }
 
     return deliveredOrder;
   }

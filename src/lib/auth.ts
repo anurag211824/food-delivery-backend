@@ -69,6 +69,7 @@ export const auth = betterAuth({
                             templateData: {
                                 userName: user.name || 'there',
                                 appName: 'FoodApp',
+                                appUrl: process.env.CUSTOMER_APP_ORIGIN || '#',
                             },
                         }).catch((e) => console.error(`Failed to queue welcome email: ${e}`));
                     }

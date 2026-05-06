@@ -6,6 +6,7 @@ import { DeliveryController } from './delivery.controller';
 import { EventsModule } from '../events/events.module';
 import { WalletsModule } from '../wallets/wallets.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { CommunicationsModule } from '../communications/communications.module';
 import { DriverSyncProcessor } from './driver-sync.processor';
 
 @Module({
@@ -13,6 +14,7 @@ import { DriverSyncProcessor } from './driver-sync.processor';
     EventsModule,
     WalletsModule,
     NotificationsModule,
+    CommunicationsModule,
     BullModule.registerQueue({ name: 'orders' }),
     BullModule.registerQueue({ name: 'driver-sync' }),
   ],

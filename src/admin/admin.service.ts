@@ -221,6 +221,7 @@ export class AdminService {
                 templateData: {
                     partnerName: restaurantUser.name,
                     partnerType: 'restaurant',
+                    loginUrl: `${process.env.RESTAURANT_APP_ORIGIN}/login`,
                 },
             }).catch(e => console.error(`Failed to queue restaurant approval email: ${e}`));
         }
@@ -310,6 +311,7 @@ export class AdminService {
                 templateData: {
                     partnerName: driverUser.name,
                     partnerType: 'delivery',
+                    loginUrl: `${process.env.RIDER_APP_ORIGIN}/login`,
                 },
             }).catch(e => console.error(`Failed to queue delivery approval email: ${e}`));
         }
