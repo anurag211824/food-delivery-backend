@@ -80,6 +80,8 @@ export class PartnerRequestsService {
                 licenseBackUrl: dto.licenseBackUrl,
                 vehicleRcUrl: dto.vehicleRcUrl,
                 profilePicUrl: dto.profilePicUrl,
+                phoneNumber: dto.phoneNumber,
+                email: dto.email,
             },
         });
 

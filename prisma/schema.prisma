@@ -589,6 +589,8 @@ model DeliveryPartnerRequest {
   licenseBackUrl  String?
   vehicleRcUrl    String?
   profilePicUrl   String?
+  phoneNumber     String?
+  email           String?
 
   // Admin Review
   status          RequestStatus @default(PENDING)
