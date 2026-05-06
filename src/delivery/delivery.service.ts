@@ -55,6 +55,15 @@ export class DeliveryService {
       throw new NotFoundException('Driver profile not found.');
     }
 
+    // Fallback: If user's email or phone is missing, try to fetch it from their delivery request
+    if (!profile.user.email || !profile.user.phoneNumber) {
+      const request = await this.prisma.deliveryPartnerRequest.findUnique({ where: { userId } });
+      if (request) {
+        if (!profile.user.email && request.email) profile.user.email = request.email;
+        if (!profile.user.phoneNumber && request.phoneNumber) profile.user.phoneNumber = request.phoneNumber;
+      }
+    }
+
     return profile;
   }
 
