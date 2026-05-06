@@ -6,6 +6,7 @@ import { CommunicationsProcessor } from './communications.processor';
 import { MockSmsProvider } from './providers/mock-sms.provider';
 import { ExotelSmsProvider } from './providers/exotel-sms.provider';
 import { ResendEmailProvider } from './providers/resend-email.provider';
+import { MockEmailProvider } from './providers/mock-email.provider';
 
 import { PrismaModule } from '../prisma/prisma.module';
 
@@ -34,15 +35,22 @@ import { PrismaModule } from '../prisma/prisma.module';
     },
     {
       provide: 'IEmailProvider',
-      useClass: ResendEmailProvider,
+      useFactory: (configService: ConfigService) => {
+        const emailProvider = configService.get<string>('EMAIL_PROVIDER', 'mock').toLowerCase();
+        
+        if (emailProvider === 'resend' && configService.get('RESEND_API_KEY')) {
+          return new ResendEmailProvider(configService);
+        }
+        // Default to mock for development
+        return new MockEmailProvider();
+      },
+      inject: [ConfigService],
     },
     // Re-export for injection via the interface key
     MockSmsProvider,
     ExotelSmsProvider,
-    {
-      provide: ResendEmailProvider,
-      useClass: ResendEmailProvider,
-    },
+    MockEmailProvider,
+    ResendEmailProvider,
   ],
   exports: [CommunicationsService],
 })

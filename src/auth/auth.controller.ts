@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Body, Req, Res, Param, NotFoundException, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Req, Res, Param, NotFoundException, ConflictException, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
     ApiTags, ApiOperation, ApiResponse, ApiBearerAuth,
@@ -420,26 +420,33 @@ export class AuthController {
             }
         }
 
-        const updatedUser = await this.prisma.user.update({
-            where: { id: req.user.id },
-            data: updateData,
-            select: {
-                id: true,
-                name: true,
-                email: true,
-                phoneNumber: true,
-                image: true,
-                role: true,
-                dob: true,
-                gender: true,
-                isVeg: true,
-                language: true,
-                referralCode: true,
-                createdAt: true,
-            }
-        });
+        try {
+            const updatedUser = await this.prisma.user.update({
+                where: { id: req.user.id },
+                data: updateData,
+                select: {
+                    id: true,
+                    name: true,
+                    email: true,
+                    phoneNumber: true,
+                    image: true,
+                    role: true,
+                    dob: true,
+                    gender: true,
+                    isVeg: true,
+                    language: true,
+                    referralCode: true,
+                    createdAt: true,
+                }
+            });
 
-        return updatedUser;
+            return updatedUser;
+        } catch (error: any) {
+            if (error.code === 'P2002') {
+                throw new ConflictException('This email is already registered to another account.');
+            }
+            throw error;
+        }
     }
 
     // ─── OAUTH CALLBACK HANDLER ───────────────────────────────────────────────
