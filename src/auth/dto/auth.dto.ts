@@ -97,4 +97,9 @@ export class UpdateProfileDto {
     @IsOptional()
     @IsBoolean()
     isVeg?: boolean;
+
+    @ApiPropertyOptional({ example: 'user@example.com', description: 'Email address (can only be set if currently missing)' })
+    @IsOptional()
+    @IsEmail()
+    email?: string;
 }

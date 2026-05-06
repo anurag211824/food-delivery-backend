@@ -410,6 +410,16 @@ export class AuthController {
             updateData.dob = body.dob ? new Date(body.dob) : null;
         }
 
+        // 📧 Allow setting email ONLY if it doesn't exist (e.g. phone-only signups)
+        if (body.email !== undefined) {
+            const currentEmail = req.user.email;
+            const isPlaceholder = currentEmail?.endsWith('@phone.foodapp.local');
+            
+            if (!currentEmail || isPlaceholder) {
+                updateData.email = body.email;
+            }
+        }
+
         const updatedUser = await this.prisma.user.update({
             where: { id: req.user.id },
             data: updateData,
