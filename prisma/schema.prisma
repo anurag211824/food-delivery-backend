@@ -65,6 +65,7 @@ model User {
   notifications Notification[]
   communicationLogs CommunicationLog[]
   withdrawals   Withdrawal[]
+  recentSearches RecentSearch[]
 
   @@index([referredById])
   @@index([role])
@@ -600,6 +601,29 @@ model DeliveryPartnerRequest {
   updatedAt DateTime @updatedAt
 
   @@index([status])
+}
+
+// 🔍 Recent Searches & Discovery
+model RecentSearch {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  query     String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("recent_search")
+}
+
+model Cuisine {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  image     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("cuisine")
 }
 
 // ==========================================

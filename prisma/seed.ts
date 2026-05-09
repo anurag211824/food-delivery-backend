@@ -21,6 +21,8 @@ async function main() {
     await prisma.restaurant.deleteMany();
     // Delete managers created by seed (careful not to delete your own admin user, we filter by role)
     await prisma.user.deleteMany({ where: { role: Role.RESTAURANT_MANAGER } });
+    await prisma.cuisine.deleteMany();
+    await prisma.recentSearch.deleteMany();
 
     console.log('--- Seeding Users (Managers) ---');
     // Using random IDs or generic names
@@ -215,6 +217,33 @@ async function main() {
         if (items.length > 0) {
             await prisma.menuItem.createMany({ data: items });
         }
+    }
+
+    console.log('--- Seeding Cuisines (What\'s on your mind) ---');
+    const cuisines = [
+        { name: "Pizza", image: "https://images.unsplash.com/photo-1513104890138-7c749659a591?w=400&q=80" },
+        { name: "North Indian", image: "https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=400&q=80" },
+        { name: "Veg Meal", image: "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&q=80" },
+        { name: "Burger", image: "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400&q=80" },
+        { name: "Biryani", image: "https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=400&q=80" },
+        { name: "Rolls", image: "https://images.unsplash.com/photo-1594179047519-f347310d3322?w=400&q=80" },
+        { name: "Chinese", image: "https://images.unsplash.com/photo-1525755662778-989d0524087e?w=400&q=80" },
+        { name: "Momo", image: "https://images.unsplash.com/photo-1625220194771-7ebdea0b70b9?w=400&q=80" },
+        { name: "Paneer", image: "https://images.unsplash.com/photo-1565557623262-b51c2513a641?w=400&q=80" },
+        { name: "Thali", image: "https://images.unsplash.com/photo-1546833999-b9f581a1996d?w=400&q=80" },
+        { name: "Cake", image: "https://images.unsplash.com/photo-1578985545062-69928b1d9587?w=400&q=80" },
+        { name: "Desserts", image: "https://images.unsplash.com/photo-1551024709-8f23befc6f87?w=400&q=80" },
+        { name: "Chole Bhature", image: "https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=400&q=80" },
+        { name: "Sweets", image: "https://images.unsplash.com/photo-1589302168068-964664d93dc0?w=400&q=80" },
+    ];
+
+    for (const cuisine of cuisines) {
+        await prisma.cuisine.create({
+            data: {
+                ...cuisine,
+                isActive: true
+            }
+        });
     }
 
     console.log('--- Seeding Complete! ---');
