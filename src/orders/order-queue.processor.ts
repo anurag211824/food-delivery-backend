@@ -193,6 +193,8 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
         }
 
         // Filter out ignored drivers (already pinged/declined)
+        this.logger.log(`[DISPATCH DEBUG] 📍 Redis GEOSEARCH returned ${nearbyDriverIds.length} nearby drivers: [${nearbyDriverIds.join(', ')}]`);
+        this.logger.log(`[DISPATCH DEBUG] 🚫 Ignored drivers: [${ignoredDriverIds.join(', ')}]`);
         let candidateIds = nearbyDriverIds.filter(id => !ignoredDriverIds.includes(id));
 
         // 🚀 NEW: Filter out drivers who explicitly declined this order via the REST API
@@ -254,12 +256,23 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
         }
 
         // ── Step 4: Send the offer to the driver ─────────────────────────────
-        this.logger.log(`Dispatching order ${orderId} to driver ${closestDriverId} (${distanceKm.toFixed(2)}km away) [attempt ${attemptCount + 1}]`);
-
         const earning = order.deliveryCharge + order.driverTip;
         const offerExpiresAt = Date.now() + 45_000;
 
+        this.logger.log(`[DISPATCH DEBUG] ════════════════════════════════════════`);
+        this.logger.log(`[DISPATCH DEBUG] 🚀 DISPATCHING ORDER TO DRIVER`);
+        this.logger.log(`[DISPATCH DEBUG]   Order ID:      ${orderId}`);
+        this.logger.log(`[DISPATCH DEBUG]   Driver UserID: ${closestDriverId}`);
+        this.logger.log(`[DISPATCH DEBUG]   Driver DB ID:  ${driverProfile.id}`);
+        this.logger.log(`[DISPATCH DEBUG]   Distance:      ${distanceKm.toFixed(2)} km`);
+        this.logger.log(`[DISPATCH DEBUG]   Earning:       ₹${earning} (delivery: ₹${order.deliveryCharge}, tip: ₹${order.driverTip})`);
+        this.logger.log(`[DISPATCH DEBUG]   Restaurant:    ${order.restaurant.name}`);
+        this.logger.log(`[DISPATCH DEBUG]   Attempt:       ${attemptCount + 1}/${MAX_DISPATCH_ATTEMPTS}`);
+        this.logger.log(`[DISPATCH DEBUG]   Offer Expires: ${new Date(offerExpiresAt).toISOString()}`);
+        this.logger.log(`[DISPATCH DEBUG] ════════════════════════════════════════`);
+
         // Send WebSocket directly to the specific driver's private room
+        this.logger.log(`[DISPATCH DEBUG] 📡 Sending WebSocket 'order_offered' to room user_${closestDriverId}`);
         this.eventsGateway.emitOrderOffered(closestDriverId, {
             orderId: order.id,
             restaurantName: order.restaurant.name,
@@ -270,6 +283,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
         });
 
         // Send Push Notification 
+        this.logger.log(`[DISPATCH DEBUG] 📱 Sending PUSH notification to driver ${closestDriverId}...`);
         this.notificationsService.send(
             closestDriverId,
             'New Delivery Available! 🛵',
@@ -282,7 +296,8 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
                 earning,
                 offerExpiresAt,
             }
-        ).catch(e => this.logger.error('Failed push notification', e));
+        ).then(() => this.logger.log(`[DISPATCH DEBUG] ✅ Push notification sent successfully for order ${orderId}`))
+         .catch(e => this.logger.error(`[DISPATCH DEBUG] ❌ Push notification FAILED for order ${orderId}:`, e));
 
         // Enqueue timeout check after 45 seconds
         await this.orderQueue.add(

@@ -35,6 +35,11 @@ export class CreateOrderDto {
   @IsString()
   promoCode?: string;
 
+  @ApiProperty({ example: 'address_id_789' })
+  @IsOptional()
+  @IsString()
+  addressId?: string;
+
   @IsOptional()
   @IsInt()
   @Min(0)

@@ -31,10 +31,14 @@ export class OrdersService {
     if (!restaurant) throw new NotFoundException("Restaurant not found");
     if (!restaurant.isOpen) throw new BadRequestException("Restaurant is closed");
 
-    // Fetch the customer's default address for distance calculation
-    const userAddress = await this.prisma.address.findFirst({
-      where: { userId, isDefault: true },
-    });
+    // Fetch the specific address or fallback to default
+    const userAddress = dto.addressId
+      ? await this.prisma.address.findUnique({ where: { id: dto.addressId, userId } })
+      : await this.prisma.address.findFirst({ where: { userId, isDefault: true } });
+
+    if (!userAddress) {
+      throw new BadRequestException("Delivery address not found. Please add an address first.");
+    }
 
     // Fetch real prices from database
     const dbItems = await this.prisma.menuItem.findMany({
@@ -113,6 +117,13 @@ export class OrdersService {
           totalAmount,
           paymentMode: dto.paymentMode,
           isPaid: false,
+          addressId: userAddress.id,
+          deliveryAddressLine: userAddress.addressLine,
+          deliveryLandmark: userAddress.landmark,
+          deliveryReceiverName: userAddress.receiverName,
+          deliveryReceiverPhone: userAddress.receiverPhone,
+          deliveryLat: userAddress.lat,
+          deliveryLng: userAddress.lng,
           items: {
             create: orderItemsData,
           },
@@ -387,11 +398,7 @@ export class OrdersService {
             id: true, 
             name: true, 
             phoneNumber: true, 
-            email: true,
-            addresses: {
-              where: { isDefault: true },
-              take: 1
-            }
+            email: true
           } 
         },
         review: true
@@ -412,8 +419,16 @@ export class OrdersService {
       }
     }
 
-    // Flatten driver and address for easier frontend consumption
-    const customerAddress = order.customer.addresses[0] || null;
+    // Use snapshotted address from the order record
+    const customerAddress = {
+      addressLine: order.deliveryAddressLine,
+      landmark: order.deliveryLandmark,
+      receiverName: order.deliveryReceiverName,
+      receiverPhone: order.deliveryReceiverPhone,
+      lat: order.deliveryLat,
+      lng: order.deliveryLng,
+    };
+
     const driver = order.driver ? {
       id: order.driver.id,
       name: order.driver.user.name,
@@ -464,7 +479,7 @@ export class OrdersService {
       throw new NotFoundException("No active order found");
     }
     
-    // Flatten driver info for easier frontend consumption
+    // Flatten driver and address info for easier frontend consumption
     const driver = currentOrder.driver ? {
       id: currentOrder.driver.id,
       name: currentOrder.driver.user.name,
@@ -475,9 +490,19 @@ export class OrdersService {
       currentLng: currentOrder.driver.currentLng,
     } : null;
 
+    const customerAddress = {
+      addressLine: currentOrder.deliveryAddressLine,
+      landmark: currentOrder.deliveryLandmark,
+      receiverName: currentOrder.deliveryReceiverName,
+      receiverPhone: currentOrder.deliveryReceiverPhone,
+      lat: currentOrder.deliveryLat,
+      lng: currentOrder.deliveryLng,
+    };
+
     return {
       ...currentOrder,
-      driver
+      driver,
+      customerAddress
     };
   }
 
@@ -528,26 +553,54 @@ export class OrdersService {
       where.status = status;
     }
 
-    const [data, total] = await Promise.all([
+    const [rawData, total] = await Promise.all([
       this.prisma.order.findMany({
         where,
         skip,
         take: limitNumber,
         include: {
           customer: {
-            select: { id: true, name: true, email: true },
+            select: { id: true, name: true, email: true, phoneNumber: true },
           },
           items: {
             include: { menuItem: true },
           },
+          driver: {
+            include: { user: { select: { name: true, phoneNumber: true } } }
+          }
         },
         orderBy: { placedAt: 'desc' },
       }),
       this.prisma.order.count({ where })
     ]);
 
+    // Flatten customer address
+    const data = rawData.map(order => {
+      const customerAddress = {
+        addressLine: order.deliveryAddressLine,
+        landmark: order.deliveryLandmark,
+        receiverName: order.deliveryReceiverName,
+        receiverPhone: order.deliveryReceiverPhone,
+        lat: order.deliveryLat,
+        lng: order.deliveryLng,
+      };
+      
+      const driver = order.driver ? {
+          ...order.driver,
+          phone: order.driver.user.phoneNumber,
+          name: order.driver.user.name,
+      } : null;
+
+      return {
+        ...order,
+        customerAddress,
+        driver
+      };
+    });
+
     return { data, meta: { total, page: pageNumber, limit: limitNumber, totalPages: Math.ceil(total / limitNumber) } };
   }
+
 
   // ─── CUSTOMER CANCEL ORDER ──────────────────────────────────────────────
   async cancelOrder(userId: string, orderId: string) {

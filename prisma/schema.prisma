@@ -131,12 +131,16 @@ model Address {
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  type        String  @default("HOME") // HOME, WORK, OTHER
-  addressLine String
-  landmark    String?
-  lat         Float // GPS Latitude
-  lng         Float // GPS Longitude
-  isDefault   Boolean @default(false)
+  type          String  @default("HOME") // HOME, WORK, OTHER
+  addressLine   String
+  landmark      String?
+  receiverName  String? // Added: Who is receiving the order
+  receiverPhone String? // Added: Contact number for this specific address
+  lat           Float // GPS Latitude
+  lng           Float // GPS Longitude
+  isDefault     Boolean @default(false)
+
+  orders Order[] @relation("OrderAddress")
 
   @@index([userId])
 }
@@ -265,6 +269,16 @@ model Order {
   driverId String?
   driver   DriverProfile? @relation(fields: [driverId], references: [id])
 
+  // Address Snapshot (Frozen at time of order)
+  addressId             String?
+  address               Address? @relation("OrderAddress", fields: [addressId], references: [id], onDelete: SetNull)
+  deliveryAddressLine   String?
+  deliveryLandmark      String?
+  deliveryReceiverName  String?
+  deliveryReceiverPhone String?
+  deliveryLat           Float?
+  deliveryLng           Float?
+
   // Status & Tracking
   status             OrderStatus @default(PLACED)
   otp                String? // Delivery confirmation
@@ -299,6 +313,7 @@ model Order {
   @@index([customerId])
   @@index([restaurantId])
   @@index([driverId])
+  @@index([addressId])
   @@index([status])
   @@index([placedAt])
 }
