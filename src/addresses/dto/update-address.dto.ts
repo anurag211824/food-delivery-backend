@@ -34,4 +34,14 @@ export class UpdateAddressDto {
     @Min(-180)
     @Max(180)
     lng?: number;
+
+    @ApiPropertyOptional({ example: 'Rahul', required: false })
+    @IsString()
+    @IsOptional()
+    receiverName?: string;
+
+    @ApiPropertyOptional({ example: '9876543210', required: false })
+    @IsString()
+    @IsOptional()
+    receiverPhone?: string;
 }
