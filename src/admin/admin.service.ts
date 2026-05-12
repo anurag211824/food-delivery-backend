@@ -397,13 +397,13 @@ export class AdminService {
         const skip = (page - 1) * limit;
         const where = status ? { status: status as any } : {};
 
-        const [data, total] = await Promise.all([
+        const [rawData, total] = await Promise.all([
             this.prisma.order.findMany({
                 where,
                 skip,
                 take: limit,
                 include: {
-                    customer: { select: { id: true, name: true, email: true } },
+                    customer: { select: { id: true, name: true, email: true, phoneNumber: true } },
                     restaurant: { select: { id: true, name: true } },
                     driver: { select: { id: true, userId: true } },
                 },
@@ -411,6 +411,21 @@ export class AdminService {
             }),
             this.prisma.order.count({ where }),
         ]);
+
+        const data = rawData.map(order => {
+            const customerAddress = {
+                addressLine: order.deliveryAddressLine,
+                landmark: order.deliveryLandmark,
+                receiverName: order.deliveryReceiverName,
+                receiverPhone: order.deliveryReceiverPhone,
+                lat: order.deliveryLat,
+                lng: order.deliveryLng,
+            };
+            return {
+                ...order,
+                customerAddress
+            };
+        });
 
         return { data, total, page, limit };
     }
