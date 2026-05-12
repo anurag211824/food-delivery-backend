@@ -32,6 +32,8 @@ export class NotificationsService {
 
         if (tokens.length > 0) {
             await this.sendExpoPush(tokens, title, body, { ...(data || {}), type });
+        } else {
+            this.logger.warn(`No active push tokens found for user ${userId}. Push notification skipped.`);
         }
 
         return notification;
@@ -87,6 +89,7 @@ export class NotificationsService {
                 title,
                 body,
                 data: data || {},
+                channelId: 'default',
             });
         }
 
@@ -96,7 +99,12 @@ export class NotificationsService {
         for (const chunk of chunks) {
             try {
                 const ticketChunk = await this.expo.sendPushNotificationsAsync(chunk);
-                // Can log or process ticketChunk to find unregistered devices to prune them
+                this.logger.debug(`Expo push tickets: ${JSON.stringify(ticketChunk)}`);
+                for (const ticket of ticketChunk) {
+                    if (ticket.status === 'error') {
+                        this.logger.error(`Error in push ticket: ${ticket.message}`, ticket.details);
+                    }
+                }
             } catch (error: any) {
                 if (error.code === 'PUSH_TOO_MANY_EXPERIENCE_IDS' && error.details) {
                     this.logger.warn('Mixed experience IDs detected, grouping and retrying...');
