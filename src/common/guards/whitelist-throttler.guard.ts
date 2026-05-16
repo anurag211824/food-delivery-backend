@@ -1,5 +1,6 @@
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { Injectable, ExecutionContext } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class WhitelistThrottlerGuard extends ThrottlerGuard {
@@ -7,13 +8,19 @@ export class WhitelistThrottlerGuard extends ThrottlerGuard {
     const request = context.switchToHttp().getRequest();
     const ip = request.ip || request.headers['x-forwarded-for'] || request.connection.remoteAddress;
 
-    // 🚀 WHITELIST LOGIC
-    // Replace 'YOUR_IP_HERE' with your actual IP address.
-    // Example: if (ip === '122.161.50.12') return true;
-    const whitelistedIps = ['2405:201:6803:3262:4119:72e0:17f1:f13c', '127.0.0.1', '::1'];
+    // 🚀 INDUSTRY STANDARD WHITELIST
+    // This reads from your .env file (or Render Environment Variables)
+    // Format: WHITELISTED_IPS=1.1.1.1,2.2.2.2
+    const configService = new ConfigService(); // Or inject via constructor if preferred
+    const whitelistEnv = process.env.WHITELISTED_IPS || '';
+    const whitelistedIps = [
+      ...whitelistEnv.split(',').map(item => item.trim()),
+      '127.0.0.1', 
+      '::1'
+    ];
     
     if (whitelistedIps.includes(ip)) {
-      return true; // Skip throttling for these IPs
+      return true;
     }
 
     return false;
