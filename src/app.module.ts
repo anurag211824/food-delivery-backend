@@ -7,6 +7,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis';
 import { APP_GUARD } from '@nestjs/core';
+import { WhitelistThrottlerGuard } from './common/guards/whitelist-throttler.guard';
 
 import { RestaurantsModule } from './restaurants/restaurants.module';
 import { MenuItemsModule } from './menu-items/menu-items.module';
@@ -103,7 +104,7 @@ function getRedisOptions(redisUrl?: string): RedisOptions {
     EventsGateway,
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: WhitelistThrottlerGuard,
     }
   ],
 })

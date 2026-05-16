@@ -5,6 +5,7 @@ import { CommunicationsService } from './communications.service';
 import { CommunicationsProcessor } from './communications.processor';
 import { MockSmsProvider } from './providers/mock-sms.provider';
 import { ExotelSmsProvider } from './providers/exotel-sms.provider';
+import { Msg91SmsProvider } from './providers/msg91-sms.provider';
 import { ResendEmailProvider } from './providers/resend-email.provider';
 import { MockEmailProvider } from './providers/mock-email.provider';
 
@@ -25,6 +26,9 @@ import { PrismaModule } from '../prisma/prisma.module';
       useFactory: (configService: ConfigService) => {
         const smsProvider = configService.get<string>('SMS_PROVIDER', 'mock').toLowerCase();
         
+        if (smsProvider === 'msg91') {
+          return new Msg91SmsProvider(configService);
+        }
         if (smsProvider === 'exotel') {
           return new ExotelSmsProvider(configService);
         }
@@ -49,6 +53,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     // Re-export for injection via the interface key
     MockSmsProvider,
     ExotelSmsProvider,
+    Msg91SmsProvider,
     MockEmailProvider,
     ResendEmailProvider,
   ],
