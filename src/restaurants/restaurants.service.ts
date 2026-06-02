@@ -90,6 +90,10 @@ export class RestaurantsService {
         ]
       },
       include: {
+        variants: {
+          where: { isAvailable: true },
+          orderBy: { isDefault: 'desc' },
+        },
         category: {
           include: {
             restaurant: true,
@@ -129,6 +133,10 @@ export class RestaurantsService {
           deliveryTime = `${Math.round(15 + (dist * 5))}-${Math.round(20 + (dist * 5))} mins`;
         }
 
+        // Get display price from the default (first) variant
+        const defaultVariant = item.variants?.[0];
+        const displayPrice = defaultVariant ? (defaultVariant.salePrice ?? defaultVariant.price) : 0;
+
         return {
           restaurantId: restaurant.id,
           name: restaurant.name,
@@ -137,13 +145,16 @@ export class RestaurantsService {
           ratingCount: restaurant.ratingCount,
           costForTwo: restaurant.costForTwo,
           menuItemId: item.id,
-          price: item.price,
+          price: displayPrice,
           isBestseller: item.isBestseller,
           estimatedDelivery: deliveryTime
         };
       });
 
-      const avgPrice = group.reduce((sum, item) => sum + item.price, 0) / group.length;
+      const avgPrice = group.reduce((sum, item) => {
+        const v = item.variants?.[0];
+        return sum + (v ? (v.salePrice ?? v.price) : 0);
+      }, 0) / group.length;
       const popularChoice = group.some(item => item.isBestseller);
 
       return {
@@ -217,7 +228,12 @@ export class RestaurantsService {
       include: {
         menuCategories: {
           include: {
-            items: true
+            items: {
+              include: {
+                variants: { orderBy: { isDefault: 'desc' } },
+                addons: { include: { options: true } },
+              },
+            },
           }
         },
         reviews: true
@@ -273,7 +289,12 @@ export class RestaurantsService {
       include: {
         menuCategories: {
           include: {
-            items: true
+            items: {
+              include: {
+                variants: { orderBy: { isDefault: 'desc' } },
+                addons: { include: { options: true } },
+              },
+            },
           }
         },
         reviews: true
@@ -504,7 +525,7 @@ export class RestaurantsService {
         counts[item.menuItemId] = { orders: 0, revenue: 0, name: item.menuItem.name };
       }
       counts[item.menuItemId].orders += item.quantity;
-      counts[item.menuItemId].revenue += item.price * item.quantity;
+      counts[item.menuItemId].revenue += item.totalPrice;
     });
 
     return Object.values(counts)

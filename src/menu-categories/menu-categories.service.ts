@@ -4,6 +4,22 @@ import { UpdateMenuCategoryDto } from './dto/update-menu-category.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MenuCategory } from '@prisma/client';
 
+/** Deep include for items → variants → addons → options */
+const CATEGORY_ITEMS_INCLUDE = {
+  items: {
+    include: {
+      variants: {
+        orderBy: { isDefault: 'desc' as const },
+      },
+      addons: {
+        include: {
+          options: true,
+        },
+      },
+    },
+  },
+} as const;
+
 @Injectable()
 export class MenuCategoriesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -43,20 +59,20 @@ export class MenuCategoriesService {
   async findAllByRestaurant(restaurantId: string): Promise<MenuCategory[]> {
     return this.prisma.menuCategory.findMany({
       where: { restaurantId },
-      include: { items: true }
+      include: CATEGORY_ITEMS_INCLUDE,
     });
   }
 
   async findAll(): Promise<MenuCategory[]> {
     return this.prisma.menuCategory.findMany({
-      include: { items: true }
+      include: CATEGORY_ITEMS_INCLUDE,
     });
   }
 
   async findOne(id: string): Promise<MenuCategory> {
     const category = await this.prisma.menuCategory.findUnique({
       where: { id },
-      include: { items: true }
+      include: CATEGORY_ITEMS_INCLUDE,
     });
 
     if (!category) {

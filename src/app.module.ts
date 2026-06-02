@@ -100,7 +100,7 @@ function getRedisOptions(redisUrl?: string): RedisOptions {
     RedisModule, AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule, DeliveryModule, PaymentsModule, WalletsModule, EventsModule, ReviewsModule, ReferralsModule, AppConfigModule, AdminModule, PartnerRequestsModule, CouponsModule, NotificationsModule, CommunicationsModule, DiscoveryModule],
   controllers: [AppController],
   providers: [
-    AppService, 
+    AppService,
     EventsGateway,
     {
       provide: APP_GUARD,
