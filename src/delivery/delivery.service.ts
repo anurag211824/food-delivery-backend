@@ -140,7 +140,7 @@ export class DeliveryService {
 
     // 2. Geo-Fencing Filter - Align with OrderQueueProcessor (15km)
     const MAX_DISTANCE_KM = 15;
-    
+
     return availableOrders.map(order => {
       const distance = this.calculateDistance(
         currentLat,
@@ -148,7 +148,7 @@ export class DeliveryService {
         order.restaurant.lat,
         order.restaurant.lng
       );
-      
+
       return {
         ...order,
         distanceToRestaurantKm: parseFloat(distance.toFixed(2)),
@@ -268,10 +268,10 @@ export class DeliveryService {
 
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { 
+      include: {
         restaurant: true,
         items: {
-          include: { menuItem: true }
+          include: { menuItem: true, variant: true, selectedAddons: true }
         }
       },
     });
@@ -321,7 +321,7 @@ export class DeliveryService {
     // Increment totalDeliveries counter and make driver available again
     await this.prisma.driverProfile.update({
       where: { id: profile.id },
-      data: { 
+      data: {
         totalDeliveries: { increment: 1 },
         status: 'ONLINE',
       },
@@ -421,9 +421,9 @@ export class DeliveryService {
           reviewUrl: `${process.env.CUSTOMER_APP_SCHEME}://(tabs)/orders/${orderId}?openReview=true`,
           // Bill Details
           items: order.items.map(item => ({
-            name: item.menuItem.name,
+            name: item.itemName,
             quantity: item.quantity,
-            price: item.price,
+            price: item.totalPrice,
           })),
           itemTotal: order.itemTotal,
           tax: order.tax,
@@ -553,7 +553,7 @@ export class DeliveryService {
           select: { name: true, phoneNumber: true },
         },
         items: {
-          include: { menuItem: true },
+          include: { menuItem: true, variant: true, selectedAddons: true },
         },
       },
     });
@@ -613,9 +613,9 @@ export class DeliveryService {
 
     // Calculate aggregates
     const todayDeliveryPay = todayOrders.reduce((sum, o) => sum + o.deliveryCharge, 0);
-    const todayTips       = todayOrders.reduce((sum, o) => sum + o.driverTip, 0);
-    const todayEarnings   = todayDeliveryPay + todayTips;
-    const weeklyEarnings  = weekOrders.reduce((sum, o) => sum + o.deliveryCharge + o.driverTip, 0);
+    const todayTips = todayOrders.reduce((sum, o) => sum + o.driverTip, 0);
+    const todayEarnings = todayDeliveryPay + todayTips;
+    const weeklyEarnings = weekOrders.reduce((sum, o) => sum + o.deliveryCharge + o.driverTip, 0);
 
     // Wallet balance
     const wallet = await this.prisma.wallet.findUnique({

@@ -59,13 +59,13 @@ model User {
   restaurantRequest      RestaurantRequest?
   deliveryPartnerRequest DeliveryPartnerRequest?
 
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  couponUsages  CouponUsage[]
-  notifications Notification[]
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  couponUsages      CouponUsage[]
+  notifications     Notification[]
   communicationLogs CommunicationLog[]
-  withdrawals   Withdrawal[]
-  recentSearches RecentSearch[]
+  withdrawals       Withdrawal[]
+  recentSearches    RecentSearch[]
 
   @@index([referredById])
   @@index([role])
@@ -83,8 +83,8 @@ model Session {
   userAgent String?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
-  pushToken String?   // Added for Expo Push Notifications
+
+  pushToken String? // Added for Expo Push Notifications
 
   @@unique([token])
   @@index([userId])
@@ -207,7 +207,6 @@ model MenuItem {
 
   name        String
   description String?
-  price       Float
   image       String?
   type        VegType? // VEG, NON_VEG, etc.
 
@@ -217,12 +216,61 @@ model MenuItem {
   prepTime     Int? // In minutes
 
   orderItems OrderItem[]
+  variants   MenuVariant[]
+  addons     AddonGroup[]
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  @@index([categoryId])
+  @@index([isAvailable])
+}
+
+model MenuVariant {
+  id         String   @id @default(cuid())
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  name      String // Quarter, Half, Full, Small, Medium, Large
+  price     Float
+  salePrice Float?
+
+  quantity    String? // "250ml", "500g", "2 pcs"
+  servingSize String? // optional
+
+  stock       Int?
+  isDefault   Boolean @default(false)
+  isAvailable Boolean @default(true)
+
+  orderItems OrderItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([categoryId])
-  @@index([isAvailable])
+  @@index([menuItemId])
+}
+
+model AddonGroup {
+  id         String   @id @default(cuid())
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  name      String // "Extra Toppings"
+  minSelect Int    @default(0)
+  maxSelect Int?
+
+  options AddonOption[]
+}
+
+model AddonOption {
+  id           String     @id @default(cuid())
+  addonGroupId String
+  addonGroup   AddonGroup @relation(fields: [addonGroupId], references: [id], onDelete: Cascade)
+
+  name        String
+  price       Float
+  isAvailable Boolean @default(true)
+
+  orderItemAddons OrderItemAddon[]
 }
 
 // 🛵 Delivery Partners (Riders)
@@ -343,18 +391,50 @@ model Withdrawal {
 
 // 🧾 Line Items (Pivot)
 model OrderItem {
-  id      String @id @default(cuid())
+  id String @id @default(cuid())
+
   orderId String
   order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
   menuItemId String
   menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
 
+  variantId String?
+  variant   MenuVariant? @relation(fields: [variantId], references: [id])
+
   quantity Int
-  price    Float // Snapshot of price at time of order
+
+  itemName    String
+  variantName String?
+
+  unitPrice   Float
+  addonsPrice Float @default(0)
+  totalPrice  Float
+
+  selectedAddons OrderItemAddon[]
+
+  createdAt DateTime @default(now())
 
   @@index([orderId])
-  @@index([menuItemId])
+}
+
+model OrderItemAddon {
+  id String @id @default(cuid())
+
+  orderItemId String
+  orderItem   OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+
+  addonOptionId String?
+  addonOption   AddonOption? @relation(fields: [addonOptionId], references: [id])
+
+  // snapshot
+  name     String
+  price    Float
+  quantity Int    @default(1)
+
+  createdAt DateTime @default(now())
+
+  @@index([orderItemId])
 }
 
 // 💳 Payments
@@ -521,26 +601,26 @@ model Notification {
 model CommunicationLog {
   id String @id @default(cuid())
 
-  channel      CommunicationChannel // SMS, EMAIL, PUSH
-  event        String // "LOGIN_OTP", "ORDER_CONFIRMATION", etc.
-  to           String // Phone, Email, or User ID
-  userId       String?
-  user         User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  channel CommunicationChannel // SMS, EMAIL, PUSH
+  event   String // "LOGIN_OTP", "ORDER_CONFIRMATION", etc.
+  to      String // Phone, Email, or User ID
+  userId  String?
+  user    User?                @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   subject      String? // For emails
   template     String? // Template name used
   templateData Json? // Variables passed to template
 
-  status       CommunicationStatus @default(PENDING)
-  providerName String? // "exotel", "resend", "expo"
+  status            CommunicationStatus @default(PENDING)
+  providerName      String? // "exotel", "resend", "expo"
   providerMessageId String? // ID from provider for tracking
-  
-  attempts     Int @default(0)
-  maxAttempts  Int @default(3)
-  error        String? // Last error message
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  attempts    Int     @default(0)
+  maxAttempts Int     @default(3)
+  error       String? // Last error message
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   sentAt    DateTime?
 
   @@index([userId])

@@ -6,7 +6,7 @@ import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
-import { Role, MenuItem } from '@prisma/client';
+import { Role } from '@prisma/client';
 import type { AuthenticatedRequest } from '../auth/auth.types';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 
@@ -15,7 +15,6 @@ const MenuItemExample = {
   categoryId: 'clcat123',
   name: 'Butter Chicken',
   description: 'Creamy tomato based curry',
-  price: 350,
   image: 'https://example.com/food.jpg',
   type: 'NON_VEG',
   isAvailable: true,
@@ -24,6 +23,29 @@ const MenuItemExample = {
   prepTime: 20,
   createdAt: '2026-02-20T12:00:00.000Z',
   updatedAt: '2026-02-20T12:00:00.000Z',
+  variants: [
+    {
+      id: 'clvar123',
+      name: 'Regular',
+      price: 350,
+      salePrice: null,
+      quantity: null,
+      servingSize: 'Serves 2',
+      isDefault: true,
+      isAvailable: true,
+    }
+  ],
+  addons: [
+    {
+      id: 'clgroup123',
+      name: 'Extra Toppings',
+      minSelect: 0,
+      maxSelect: 3,
+      options: [
+        { id: 'clopt123', name: 'Extra Cheese', price: 50, isAvailable: true }
+      ]
+    }
+  ],
 };
 
 @ApiTags('Menu Management')
@@ -37,18 +59,18 @@ export class MenuItemsController {
   @UseGuards(AuthGuard, RolesGuard)
   @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
-    summary: 'Create a menu item',
-    description: 'Add a new dish to your restaurant menu. Link it to a category via `categoryId`. Only the restaurant manager can create items.'
+    summary: 'Create a menu item with variants & addons',
+    description: 'Add a new dish with pricing variants and optional addon groups. At least one variant (or legacy `price` field) is required for pricing.'
   })
   @ApiBody({ type: CreateMenuItemDto })
   @ApiResponse({
     status: 201,
-    description: 'Menu item created successfully',
+    description: 'Menu item created with variants and addons',
     schema: { example: MenuItemExample }
   })
   @ApiResponse({ status: 401, description: 'Not authenticated' })
   @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER role' })
-  create(@Body() dto: CreateMenuItemDto, @Req() req: AuthenticatedRequest): Promise<MenuItem> {
+  create(@Body() dto: CreateMenuItemDto, @Req() req: AuthenticatedRequest) {
     return this.menuItemsService.create(dto, req.user);
   }
 
@@ -57,11 +79,11 @@ export class MenuItemsController {
   @Get()
   @ApiOperation({
     summary: 'List all menu items',
-    description: 'Returns all items across all restaurants. Mainly for admin/debug use.'
+    description: 'Returns all items across all restaurants with full variant & addon details. Mainly for admin/debug use.'
   })
   @ApiResponse({
     status: 200,
-    description: 'List of all menu items',
+    description: 'List of all menu items with variants and addons',
     schema: { example: [MenuItemExample] }
   })
   findAll() {
@@ -73,16 +95,16 @@ export class MenuItemsController {
   @Get('restaurant/:restaurantId')
   @ApiOperation({
     summary: 'Get menu by restaurant',
-    description: 'Returns all menu items for a specific restaurant. Used to build the full menu page.'
+    description: 'Returns all menu items for a specific restaurant with variants and addons. Used to build the full menu page.'
   })
   @ApiParam({ name: 'restaurantId', example: 'clxyz789', description: 'Restaurant ID' })
   @ApiResponse({
     status: 200,
-    description: 'All items for the restaurant',
+    description: 'All items for the restaurant with variants & addons',
     schema: { example: [MenuItemExample] }
   })
   @ApiResponse({ status: 404, description: 'Restaurant not found' })
-  async findByRestaurant(@Param('restaurantId') restaurantId: string): Promise<MenuItem[]> {
+  async findByRestaurant(@Param('restaurantId') restaurantId: string) {
     return this.menuItemsService.findAllByRestaurant(restaurantId);
   }
 
@@ -91,16 +113,16 @@ export class MenuItemsController {
   @Get(':id')
   @ApiOperation({
     summary: 'Get menu item details',
-    description: 'Fetch the full details of a single menu item — used for item detail modals or cart summaries.'
+    description: 'Fetch full details of a single menu item including all variants and addons — used for item detail modals.'
   })
   @ApiParam({ name: 'id', example: 'clitem123', description: 'Menu item ID' })
   @ApiResponse({
     status: 200,
-    description: 'Menu item details',
+    description: 'Menu item with variants and addons',
     schema: { example: MenuItemExample }
   })
   @ApiResponse({ status: 404, description: 'Menu item not found' })
-  async findOne(@Param('id') id: string): Promise<MenuItem> {
+  async findOne(@Param('id') id: string) {
     return this.menuItemsService.findOne(id);
   }
 
@@ -110,21 +132,21 @@ export class MenuItemsController {
   @UseGuards(AuthGuard, RolesGuard)
   @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
-    summary: 'Update a menu item',
-    description: 'Edit any field of a menu item — price, availability, spice level, etc. All fields are optional.'
+    summary: 'Update a menu item with variants & addons',
+    description: 'Edit item fields, add/update/delete variants and addons. Include `id` in variant/addon objects to update existing; omit to create new. Use `deleteVariantIds`/`deleteAddonGroupIds`/`deleteAddonOptionIds` for explicit deletion.'
   })
   @ApiParam({ name: 'id', example: 'clitem123', description: 'Menu item ID to update' })
   @ApiBody({ type: UpdateMenuItemDto })
   @ApiResponse({
     status: 200,
-    description: 'Menu item updated successfully',
+    description: 'Menu item updated with variants and addons',
     schema: { example: MenuItemExample }
   })
   @ApiResponse({ status: 401, description: 'Not authenticated' })
   @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER role' })
   @ApiResponse({ status: 404, description: 'Menu item not found' })
-  update(@Param('id') id: string, @Body() updateMenuItemDto: UpdateMenuItemDto) {
-    return this.menuItemsService.update(id, updateMenuItemDto);
+  update(@Param('id') id: string, @Body() dto: UpdateMenuItemDto, @Req() req: AuthenticatedRequest) {
+    return this.menuItemsService.update(id, dto, req.user);
   }
 
   // ─── MANAGER: DELETE ──────────────────────────────────────────────────────
@@ -134,7 +156,7 @@ export class MenuItemsController {
   @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Delete a menu item',
-    description: 'Permanently remove a dish from the menu.'
+    description: 'Permanently remove a dish and all its variants/addons from the menu.'
   })
   @ApiParam({ name: 'id', example: 'clitem123', description: 'Menu item ID to delete' })
   @ApiResponse({
@@ -145,7 +167,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 401, description: 'Not authenticated' })
   @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER role' })
   @ApiResponse({ status: 404, description: 'Menu item not found' })
-  remove(@Param('id') id: string) {
-    return this.menuItemsService.remove(id);
+  remove(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    return this.menuItemsService.remove(id, req.user);
   }
 }

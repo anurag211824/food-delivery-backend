@@ -56,22 +56,30 @@ export class DiscoveryService {
         id: true,
         name: true,
         image: true,
-        price: true,
+        variants: {
+          where: { isAvailable: true },
+          orderBy: { isDefault: 'desc' },
+          take: 1,
+          select: { price: true, salePrice: true },
+        },
         category: {
           select: {
             restaurantId: true,
           },
         },
       },
-      take: 30, // Show a good variety on search page
+      take: 30,
     });
 
-    return items.map((item) => ({
-      id: item.id,
-      name: item.name,
-      image: item.image,
-      price: item.price,
-      restaurantId: item.category.restaurantId,
-    }));
+    return items.map((item) => {
+      const defaultVariant = item.variants[0];
+      return {
+        id: item.id,
+        name: item.name,
+        image: item.image,
+        price: defaultVariant ? (defaultVariant.salePrice ?? defaultVariant.price) : 0,
+        restaurantId: item.category.restaurantId,
+      };
+    });
   }
 }
