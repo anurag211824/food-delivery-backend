@@ -8,27 +8,32 @@ import {
   MessageBody,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { Logger } from '@nestjs/common';
+import { Logger, Inject, UsePipes } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { auth } from '../lib/auth';
 import { fromNodeHeaders } from 'better-auth/node';
-import { Inject } from '@nestjs/common';
 import Redis from 'ioredis';
 import { REDIS_CLIENT } from '../redis/redis.provider';
-
-// Basic driver location payload
-interface LocationPayload {
-  orderId: string;
-  driverProfileId?: string;
-  lat: number;
-  lng: number;
-}
+import { LocationUpdateDto } from './dto/location-update.dto';
+import { JoinOrderTrackingDto } from './dto/join-order-tracking.dto';
+import { WsValidationPipe } from './ws-validation.pipe';
 
 @WebSocketGateway({
   cors: {
-    origin: '*',
+    origin: [
+      process.env.CUSTOMER_APP_ORIGIN,
+      process.env.RESTAURANT_APP_ORIGIN,
+      process.env.RIDER_APP_ORIGIN,
+      process.env.ADMIN_WEB_APP_ORIGIN,
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://localhost:8081',
+      'http://localhost:8082',
+      'http://localhost:8083',
+    ].filter(Boolean),
   },
 })
+@UsePipes(new WsValidationPipe())
 export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(EventsGateway.name);
 
@@ -101,7 +106,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('join_order_tracking')
   async handleJoinTracking(
     @ConnectedSocket() client: Socket,
-    @MessageBody() orderId: string,
+    @MessageBody() { orderId }: JoinOrderTrackingDto,
   ) {
     const user = client.data?.user;
     if (!user) {
@@ -139,7 +144,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('leave_order_tracking')
   handleLeaveTracking(
     @ConnectedSocket() client: Socket,
-    @MessageBody() orderId: string,
+    @MessageBody() { orderId }: JoinOrderTrackingDto,
   ) {
     const roomName = `order_${orderId}`;
     client.leave(roomName);
@@ -152,7 +157,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('driver_location_update')
   async handleLocationUpdate(
     @ConnectedSocket() client: Socket,
-    @MessageBody() payload: LocationPayload,
+    @MessageBody() payload: LocationUpdateDto,
   ) {
     const user = client.data?.user;
     if (!user) return;

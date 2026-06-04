@@ -8,8 +8,10 @@ import {
 } from '@nestjs/swagger';
 import { RequestStatus, Role } from '@prisma/client';
 import { AdminService } from './admin.service';
+import { PayoutsService } from '../payouts/payouts.service';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { CreateUserDto } from './dto/create-user.dto';
+import { ManualRefundDto } from './dto/manual-refund.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -21,7 +23,10 @@ import type { AuthenticatedRequest } from '../auth/auth.types';
 @Roles(Role.ADMIN)
 @Controller('api/admin')
 export class AdminController {
-    constructor(private readonly adminService: AdminService) { }
+    constructor(
+        private readonly adminService: AdminService,
+        private readonly payoutsService: PayoutsService,
+    ) { }
 
     // ─── LIST USERS ───────────────────────────────────────────────────────────
     @Get('users')
@@ -238,5 +243,58 @@ export class AdminController {
             Math.max(1, parseInt(page, 10)),
             Math.min(100, Math.max(1, parseInt(limit, 10))),
         );
+    }
+
+    // ─── ADMIN: MANUAL REFUND ─────────────────────────────────────────────
+    @Post('refunds/manual')
+    @ApiOperation({
+        summary: '[Admin] Manually issue a refund for an order',
+        description: 'Issues a custom/partial refund directly to the customer wallet and records the refund.',
+    })
+    @ApiBody({ type: ManualRefundDto })
+    async manualRefund(@Body() dto: ManualRefundDto) {
+        return this.adminService.manualRefund(dto);
+    }
+
+    // ─── ADMIN: GET SETTLEMENTS ───────────────────────────────────────────
+    @Get('settlements')
+    @ApiOperation({
+        summary: '[Admin] List restaurant settlements',
+        description: 'Returns a paginated list of all restaurant settlements. Can filter by status (PENDING, PAID).',
+    })
+    @ApiQuery({ name: 'status', required: false, description: 'Filter settlements by status' })
+    @ApiQuery({ name: 'page', required: false, example: 1 })
+    @ApiQuery({ name: 'limit', required: false, example: 20 })
+    async getSettlements(
+        @Query('status') status?: string,
+        @Query('page') page = '1',
+        @Query('limit') limit = '20',
+    ) {
+        return this.payoutsService.getSettlements(
+            status,
+            Math.max(1, parseInt(page, 10)),
+            Math.min(100, Math.max(1, parseInt(limit, 10))),
+        );
+    }
+
+    // ─── ADMIN: PAY OUT SETTLEMENT ────────────────────────────────────────
+    @Post('settlements/:id/pay')
+    @ApiOperation({
+        summary: '[Admin] Mark a settlement as PAID',
+        description: 'Resolves a settlement and marks it as PAID.',
+    })
+    @ApiParam({ name: 'id', description: 'Settlement ID' })
+    async paySettlement(@Param('id') id: string) {
+        return this.payoutsService.resolveSettlement(id);
+    }
+
+    // ─── ADMIN: TRIGGER AD-HOC SETTLEMENTS RUN ────────────────────────────
+    @Post('settlements/trigger')
+    @ApiOperation({
+        summary: '[Admin] Trigger ad-hoc settlements calculation',
+        description: 'Manually runs the settlement calculation engine for the previous day.',
+    })
+    async triggerSettlementRun() {
+        return this.payoutsService.triggerManualSettlementRun();
     }
 }

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import helmet from 'helmet';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
@@ -54,7 +54,8 @@ async function bootstrap() {
   const port = process.env.PORT ?? 4000;
   await app.listen(port);
 
-  console.log(`🚀 Server running on: http://localhost:${port}`);
-  console.log(`📜 API Contract available at: http://localhost:${port}/api/docs`);
+  const logger = new Logger('Bootstrap');
+  logger.log(`🚀 Server running on: http://localhost:${port}`);
+  logger.log(`📜 API Contract available at: http://localhost:${port}/api/docs`);
 }
 bootstrap();

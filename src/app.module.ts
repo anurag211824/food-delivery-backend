@@ -29,6 +29,7 @@ import { CouponsModule } from './coupons/coupons.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { CommunicationsModule } from './communications/communications.module';
 import { DiscoveryModule } from './discovery/discovery.module';
+import { PayoutsModule } from './payouts/payouts.module';
 import { BullModule } from '@nestjs/bullmq';
 import { CacheModule } from '@nestjs/cache-manager';
 import { RedisModule } from './redis/redis.module';
@@ -97,7 +98,7 @@ function getRedisOptions(redisUrl?: string): RedisOptions {
       },
     }),
     ScheduleModule.forRoot(),
-    RedisModule, AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule, DeliveryModule, PaymentsModule, WalletsModule, EventsModule, ReviewsModule, ReferralsModule, AppConfigModule, AdminModule, PartnerRequestsModule, CouponsModule, NotificationsModule, CommunicationsModule, DiscoveryModule],
+    RedisModule, AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule, DeliveryModule, PaymentsModule, WalletsModule, EventsModule, ReviewsModule, ReferralsModule, AppConfigModule, AdminModule, PartnerRequestsModule, CouponsModule, NotificationsModule, CommunicationsModule, DiscoveryModule, PayoutsModule],
   controllers: [AppController],
   providers: [
     AppService,

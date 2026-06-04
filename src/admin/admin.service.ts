@@ -1,18 +1,21 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { RequestStatus, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CommunicationsService } from '../communications/communications.service';
+import { WalletsService } from '../wallets/wallets.service';
 import { auth } from "../lib/auth";
 
 @Injectable()
 export class AdminService {
+    private readonly logger = new Logger(AdminService.name);
     constructor(
         private readonly prisma: PrismaService,
         private readonly notifications: NotificationsService,
         private readonly communications: CommunicationsService,
+        private readonly walletsService: WalletsService,
     ) { }
 
     // ─── LIST USERS ───────────────────────────────────────────────────────────
@@ -223,7 +226,7 @@ export class AdminService {
                     partnerType: 'restaurant',
                     loginUrl: `${process.env.RESTAURANT_APP_ORIGIN}/login`,
                 },
-            }).catch(e => console.error(`Failed to queue restaurant approval email: ${e}`));
+            }).catch(e => this.logger.error(`Failed to queue restaurant approval email: ${e}`));
         }
 
         return {
@@ -317,7 +320,7 @@ export class AdminService {
                     partnerType: 'delivery',
                     loginUrl: `${process.env.RIDER_APP_ORIGIN}/login`,
                 },
-            }).catch(e => console.error(`Failed to queue delivery approval email: ${e}`));
+            }).catch(e => this.logger.error(`Failed to queue delivery approval email: ${e}`));
         }
 
         return {
@@ -459,6 +462,88 @@ export class AdminService {
         return {
             message: 'User account created successfully.',
             user: updated
+        };
+    }
+
+    // ─── ADMIN: MANUAL REFUND ─────────────────────────────────────────────
+    async manualRefund(dto: import('./dto/manual-refund.dto').ManualRefundDto) {
+        const order = await this.prisma.order.findUnique({
+            where: { id: dto.orderId },
+        });
+
+        if (!order) {
+            throw new NotFoundException(`Order with ID "${dto.orderId}" not found.`);
+        }
+
+        if (!order.isPaid) {
+            throw new BadRequestException('Cannot refund an unpaid order.');
+        }
+
+        // Calculate total amount already refunded for this order
+        const refunds = await this.prisma.refund.findMany({
+            where: { orderId: order.id },
+            select: { amount: true },
+        });
+
+        const totalRefunded = refunds.reduce((sum, r) => sum + r.amount, 0);
+        if (totalRefunded + dto.amount > order.totalAmount) {
+            throw new BadRequestException(
+                `Refund amount (₹${dto.amount}) exceeds the remaining refundable amount of ₹${(order.totalAmount - totalRefunded).toFixed(2)}.`
+            );
+        }
+
+        // Run transaction to record refund and credit wallet
+        const result = await this.prisma.$transaction(async (prisma) => {
+            // 1. Create the refund record
+            const refund = await prisma.refund.create({
+                data: {
+                    orderId: order.id,
+                    amount: dto.amount,
+                    reason: dto.reason,
+                    status: 'PROCESSED',
+                    isAuto: false,
+                },
+            });
+
+            // 2. Refund back to the customer's wallet
+            const walletTransaction = await this.walletsService.addFunds(
+                order.customerId,
+                dto.amount,
+                `MANUAL_REFUND:${order.id}`
+            );
+
+            return { refund, walletTransaction };
+        });
+
+        // 3. Notify the user via in-app push notification
+        await this.notifications.send(
+            order.customerId,
+            'Refund Processed 💰',
+            `A manual refund of ₹${dto.amount} has been credited to your wallet. Reason: ${dto.reason}`,
+            'REFUND_PROCESSED'
+        );
+
+        // 4. Send refund email notification
+        const customer = await this.prisma.user.findUnique({ where: { id: order.customerId } });
+        if (customer?.email) {
+            this.communications.queueEmail({
+                to: customer.email,
+                subject: `Manual Refund Processed for Order #${order.id.slice(-6).toUpperCase()}`,
+                template: 'refund_processed',
+                event: 'REFUND_PROCESSED',
+                userId: order.customerId,
+                templateData: {
+                    userName: customer.name,
+                    orderId: order.id,
+                    refundAmount: dto.amount,
+                    reason: dto.reason,
+                },
+            }).catch(e => this.logger.error(`Failed to queue manual refund email: ${e}`));
+        }
+
+        return {
+            message: 'Manual refund processed successfully.',
+            refund: result.refund,
         };
     }
 }

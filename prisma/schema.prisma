@@ -177,6 +177,7 @@ model Restaurant {
   menuCategories MenuCategory[]
   orders         Order[]
   reviews        Review[]
+  settlements    Settlement[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -298,6 +299,7 @@ model DriverProfile {
   updatedAt DateTime @updatedAt
 
   @@index([status])
+  @@index([status, currentLat, currentLng])
 }
 
 // ==========================================
@@ -796,3 +798,20 @@ enum CommunicationStatus {
   FAILED
   BOUNCED
 }
+
+model Settlement {
+  id           String   @id @default(cuid())
+  restaurantId String
+  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  amount       Float
+  commission   Float
+  totalRevenue Float
+  status       String   @default("PENDING") // PENDING, PAID
+  settledAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([restaurantId])
+  @@index([status])
+}
+

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -24,6 +24,7 @@ const ORDER_ITEMS_INCLUDE = {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
   constructor(
     private prisma: PrismaService,
     private walletsService: WalletsService,
@@ -330,7 +331,7 @@ export class OrdersService {
         'dispatch-order', 
         { orderId: orderId, ignoredDriverIds: [], attemptCount: 0 },
         { jobId: `dispatch-${orderId}`, removeOnComplete: true }
-      ).catch(e => console.error('Failed to trigger auto-dispatch', e));
+      ).catch(e => this.logger.error('Failed to trigger auto-dispatch', e));
 
     } else if (status === 'ON_THE_WAY') {
       title = 'Out for Delivery! 🛵';
@@ -365,7 +366,7 @@ export class OrdersService {
             discount: order.discount,
             driverTip: order.driverTip,
           },
-        }).catch(e => console.error(`Failed to queue order delivered email: ${e}`));
+        }).catch(e => this.logger.error(`Failed to queue order delivered email: ${e}`));
       }
     } else if (status === 'CANCELLED') {
       title = 'Order Cancelled ❌';
@@ -377,7 +378,7 @@ export class OrdersService {
       title,
       body,
       'ORDER_UPDATE',
-      { orderId, status }).catch(e => console.error('Failed to send order update push notification', e));
+      { orderId, status }).catch(e => this.logger.error('Failed to send order update push notification', e));
 
     if (['DELIVERED', 'CANCELLED', 'REFUSED'].includes(status)) {
       this.eventsGateway.cleanupOrderRoom(orderId);
@@ -717,7 +718,7 @@ export class OrdersService {
             orderId: order.id,
             reason,
           },
-        }).catch(e => console.error(`Failed to queue refund email: ${e}`));
+        }).catch(e => this.logger.error(`Failed to queue refund email: ${e}`));
       }
     }
 
@@ -735,7 +736,7 @@ export class OrdersService {
           `The active order #${order.id.slice(-6)} was cancelled by the customer/restaurant.`,
           'ORDER_UPDATE',
           { orderId: order.id, status: 'CANCELLED' }
-        ).catch(e => console.error('Failed to notify driver of cancellation', e));
+        ).catch(e => this.logger.error('Failed to notify driver of cancellation', e));
 
         this.eventsGateway.server.to(`user_${driverUserId}`).emit('order_cancelled', {
           orderId: order.id,
@@ -752,7 +753,7 @@ export class OrdersService {
       `Your order was cancelled: ${reason}`,
       'ORDER_UPDATE',
       { orderId: order.id, status: 'CANCELLED' }
-    ).catch(e => console.error('Failed to send order cancelled push notification', e));
+    ).catch(e => this.logger.error('Failed to send order cancelled push notification', e));
 
     this.eventsGateway.cleanupOrderRoom(order.id);
 

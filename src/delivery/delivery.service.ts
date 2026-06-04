@@ -1,4 +1,4 @@
-import { Injectable, Inject, NotFoundException, ConflictException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Inject, NotFoundException, ConflictException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
@@ -13,6 +13,7 @@ import { REDIS_CLIENT } from '../redis/redis.provider';
 
 @Injectable()
 export class DeliveryService {
+  private readonly logger = new Logger(DeliveryService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventsGateway: EventsGateway,
@@ -218,7 +219,7 @@ export class DeliveryService {
       `${profile.user.name} is picking up your order from ${order.restaurant.name}.`,
       'ORDER_UPDATE',
       { orderId, status: order.status }
-    ).catch(e => console.error('Failed to send driver assigned push', e));
+    ).catch(e => this.logger.error('Failed to send driver assigned push', e));
 
     return updatedOrder;
   }
@@ -257,7 +258,7 @@ export class DeliveryService {
       `${profile.user.name} has picked up your order and is on the way. Give OTP ${order.otp} to the rider for a safe delivery.`,
       'ORDER_UPDATE',
       { orderId, status: 'ON_THE_WAY' }
-    ).catch(e => console.error('Failed to send order on the way push', e));
+    ).catch(e => this.logger.error('Failed to send order on the way push', e));
 
     return updatedOrder;
   }
@@ -354,7 +355,7 @@ export class DeliveryService {
         order.restaurant.managerId,
         restaurantPayout,
         payoutType,
-      ).catch(e => console.error(`Failed restaurant payout for order ${order.id}:`, e));
+      ).catch(e => this.logger.error(`Failed restaurant payout for order ${order.id}:`, e));
     }
 
     // ─── COD SETTLEMENT ───────────────────────────────────────────────────
@@ -382,10 +383,10 @@ export class DeliveryService {
               `Your wallet balance is ₹${riderWallet.balance.toFixed(0)}. Please deposit your collected cash to avoid delivery restrictions.`,
               'SYSTEM',
               { walletBalance: riderWallet.balance },
-            ).catch(e => console.error('Failed to send COD wallet alert', e));
+            ).catch(e => this.logger.error('Failed to send COD wallet alert', e));
           }
         } catch (e) {
-          console.error('Failed to check COD wallet threshold:', e);
+          this.logger.error('Failed to check COD wallet threshold:', e);
         }
       }
     }
@@ -402,7 +403,7 @@ export class DeliveryService {
       'Enjoy your meal! Don\'t forget to leave a review.',
       'ORDER_UPDATE',
       { orderId, status: 'DELIVERED' }
-    ).catch(e => console.error('Failed to send delivery complete push', e));
+    ).catch(e => this.logger.error('Failed to send delivery complete push', e));
 
     // 📧 Send Order Delivered Email
     const deliveredCustomer = await this.prisma.user.findUnique({ where: { id: order.customerId } });
@@ -432,7 +433,7 @@ export class DeliveryService {
           discount: order.discount,
           driverTip: order.driverTip,
         },
-      }).catch(e => console.error(`Failed to queue order delivered email: ${e}`));
+      }).catch(e => this.logger.error(`Failed to queue order delivered email: ${e}`));
     }
 
     return deliveredOrder;
@@ -517,7 +518,7 @@ export class DeliveryService {
         `The rider assigned to order #${orderId.slice(-6)} is no longer available. We are assigning a new one now.`,
         'ORDER_UPDATE',
         { orderId, status: 'READY' }
-      ).catch(e => console.error('Failed to notify restaurant of rider release', e));
+      ).catch(e => this.logger.error('Failed to notify restaurant of rider release', e));
 
       // Update restaurant live dashboard
       this.eventsGateway.server.to(`restaurant_${restaurant.id}`).emit('rider_released', { orderId });
@@ -530,7 +531,7 @@ export class DeliveryService {
       'Your assigned rider is no longer available. We are looking for a replacement now!',
       'ORDER_UPDATE',
       { orderId, status: 'READY' }
-    ).catch(e => console.error('Failed to notify customer of rider release', e));
+    ).catch(e => this.logger.error('Failed to notify customer of rider release', e));
 
     return { message: 'Delivery cancelled and released for other drivers.' };
   }
@@ -561,7 +562,7 @@ export class DeliveryService {
     if (!activeOrder) {
       // Self-healing: If driver is stuck in BUSY but has no orders, reset them to ONLINE
       if (profile.status === 'BUSY') {
-        console.log(`[Self-Healing] Driver ${userId} was stuck in BUSY with no active orders. Resetting to ONLINE.`);
+        this.logger.log(`[Self-Healing] Driver ${userId} was stuck in BUSY with no active orders. Resetting to ONLINE.`);
         await this.prisma.driverProfile.update({
           where: { id: profile.id },
           data: { status: 'ONLINE' }
