@@ -367,6 +367,8 @@ export class AdminService {
             activeDrivers,
             pendingRestaurantRequests,
             pendingDeliveryRequests,
+            pendingSettlements,
+            pendingWithdrawals,
         ] = await Promise.all([
             this.prisma.user.count(),
             this.prisma.restaurant.count(),
@@ -379,6 +381,8 @@ export class AdminService {
             this.prisma.driverProfile.count({ where: { status: 'ONLINE' } }),
             this.prisma.restaurantRequest.count({ where: { status: 'PENDING' } }),
             this.prisma.deliveryPartnerRequest.count({ where: { status: 'PENDING' } }),
+            this.prisma.settlement.count({ where: { status: 'PENDING' } }),
+            this.prisma.withdrawal.count({ where: { status: 'PENDING' } }),
         ]);
 
         return {
@@ -392,6 +396,8 @@ export class AdminService {
                 restaurant: pendingRestaurantRequests,
                 delivery: pendingDeliveryRequests,
             },
+            pendingSettlements,
+            pendingWithdrawals,
         };
     }
 
@@ -545,5 +551,37 @@ export class AdminService {
             message: 'Manual refund processed successfully.',
             refund: result.refund,
         };
+    }
+
+    // ─── ADMIN: GET ALL REFUNDS ───────────────────────────────────────────
+    async getRefunds(page = 1, limit = 20) {
+        const skip = (page - 1) * limit;
+        const [data, total] = await Promise.all([
+            this.prisma.refund.findMany({
+                skip,
+                take: limit,
+                orderBy: { createdAt: 'desc' },
+                include: {
+                    order: {
+                        select: {
+                            id: true,
+                            totalAmount: true,
+                            paymentMode: true,
+                            customer: {
+                                select: {
+                                    id: true,
+                                    name: true,
+                                    email: true,
+                                    phoneNumber: true,
+                                }
+                            }
+                        }
+                    }
+                }
+            }),
+            this.prisma.refund.count(),
+        ]);
+
+        return { data, total, page, limit };
     }
 }
