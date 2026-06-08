@@ -268,7 +268,15 @@ export class RestaurantsService {
       }),
     ]);
 
-    return { data, total, page, limit };
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async findAll(dto: PaginationDto) {
