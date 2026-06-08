@@ -177,6 +177,29 @@ export class RestaurantsController {
     return this.restaurantsService.findMyRestaurant(req.user, restaurantId);
   }
 
+  // ─── MANAGER: SETTLEMENTS ─────────────────────────────────────────────────
+  @Get('settlements')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard, RolesGuard)
+  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
+  @ApiOperation({
+    summary: 'Get Restaurant Settlements (Manager Only)',
+    description: 'Returns a paginated list of all nightly settlements for this restaurant.'
+  })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  async getMySettlements(
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+    @Req() req: AuthenticatedRequest
+  ) {
+    return this.restaurantsService.getMySettlements(
+      req.user,
+      Math.max(1, parseInt(page, 10)),
+      Math.min(100, Math.max(1, parseInt(limit, 10)))
+    );
+  }
+
   // ─── PUBLIC: GET ONE ──────────────────────────────────────────────────────
   @UseInterceptors(CacheInterceptor)
   @Get(':id')

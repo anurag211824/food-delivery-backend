@@ -246,6 +246,31 @@ export class RestaurantsService {
     return restaurant;
   }
 
+  async getMySettlements(user: Pick<User, 'id' | 'role'>, page = 1, limit = 20) {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { managerId: user.id },
+    });
+
+    if (!restaurant) {
+      throw new NotFoundException('You do not possess a registered restaurant profile.');
+    }
+
+    const skip = (page - 1) * limit;
+    const [data, total] = await Promise.all([
+      this.prisma.settlement.findMany({
+        where: { restaurantId: restaurant.id },
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.settlement.count({
+        where: { restaurantId: restaurant.id },
+      }),
+    ]);
+
+    return { data, total, page, limit };
+  }
+
   async findAll(dto: PaginationDto) {
     const pageNumber = dto.page || 1;
     const limitNumber = dto.limit || 10;

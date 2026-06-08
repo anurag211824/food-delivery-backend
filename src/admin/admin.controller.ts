@@ -256,6 +256,24 @@ export class AdminController {
         return this.adminService.manualRefund(dto);
     }
 
+    // ─── ADMIN: LIST REFUNDS ──────────────────────────────────────────────
+    @Get('refunds')
+    @ApiOperation({
+        summary: '[Admin] List all refunds',
+        description: 'Returns a paginated list of all system refunds (auto & manual).',
+    })
+    @ApiQuery({ name: 'page', required: false, example: 1 })
+    @ApiQuery({ name: 'limit', required: false, example: 20 })
+    async getRefunds(
+        @Query('page') page = '1',
+        @Query('limit') limit = '20',
+    ) {
+        return this.adminService.getRefunds(
+            Math.max(1, parseInt(page, 10)),
+            Math.min(100, Math.max(1, parseInt(limit, 10))),
+        );
+    }
+
     // ─── ADMIN: GET SETTLEMENTS ───────────────────────────────────────────
     @Get('settlements')
     @ApiOperation({

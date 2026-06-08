@@ -436,7 +436,8 @@ export class OrdersService {
             id: true, 
             name: true, 
             phoneNumber: true, 
-            email: true
+            email: true,
+            image: true
           } 
         },
         review: true

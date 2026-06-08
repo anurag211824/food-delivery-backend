@@ -109,6 +109,9 @@ model Account {
 
   @@map("account")
 }
+// This is actually one of the authentication tables, not a user profile table. 
+// Its purpose is to store temporary verification data such as OTPs, 
+// email verification tokens, password reset tokens, etc.
 
 model Verification {
   id         String    @id
