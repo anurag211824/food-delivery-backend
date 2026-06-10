@@ -4,6 +4,7 @@ import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { Restaurant, VegType, Role, User } from '@prisma/client';
 import { SearchRestaurantsDto } from './dto/search-restaurants.dto';
+import { ListRestaurantsDto } from './dto/list-restaurants.dto';
 import { GetStatsDto, StatsPeriod } from './dto/get-stats.dto';
 import { PaginationDto } from 'src/common/pagination.dto';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
@@ -279,31 +280,40 @@ export class RestaurantsService {
     };
   }
 
-  async findAll(dto: PaginationDto) {
+  async findAll(dto: ListRestaurantsDto) {
     const pageNumber = dto.page || 1;
     const limitNumber = dto.limit || 10;
     const skip = (pageNumber - 1) * limitNumber;
 
-    const [data, total] = await Promise.all([
-      this.prisma.restaurant.findMany({
-        skip,
-        take: limitNumber,
-        where: { isActive: true },
-        select: {
-          id: true,
-          name: true,
-          image: true,
-          type: true,
-          costForTwo: true,
-          cuisineTypes: true,
-          rating: true,
-          ratingCount: true,
-        }
-      }),
-      this.prisma.restaurant.count({
-        where: { isActive: true }
-      })
-    ]);
+    const allActive = await this.prisma.restaurant.findMany({
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        image: true,
+        type: true,
+        costForTwo: true,
+        cuisineTypes: true,
+        rating: true,
+        ratingCount: true,
+        lat: true,
+        lng: true,
+      }
+    });
+
+    let filteredData = allActive;
+    if (dto.userLat && dto.userLng) {
+      filteredData = allActive.filter(r => {
+        if (!r.lat || !r.lng) return false;
+        const distance = this.calculateDistance(dto.userLat!, dto.userLng!, r.lat, r.lng);
+        return distance <= 7;
+      });
+    }
+
+    const total = filteredData.length;
+    const paginatedData = filteredData.slice(skip, skip + limitNumber);
+
+    const data = paginatedData.map(({ lat, lng, ...rest }) => rest);
 
     return {
       data,

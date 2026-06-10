@@ -7,6 +7,7 @@ import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { SearchRestaurantsDto } from './dto/search-restaurants.dto';
 import { DashboardQueryDto } from './dto/dashboard-query.dto';
 import { GetStatsDto } from './dto/get-stats.dto';
+import { ListRestaurantsDto } from './dto/list-restaurants.dto';
 import { PaginationDto } from '../common/pagination.dto';
 import { AuthGuard } from 'src/auth/auth.guard';
 import { RolesGuard } from 'src/auth/roles.guard';
@@ -109,7 +110,7 @@ export class RestaurantsController {
     description: 'List of restaurants',
     schema: { example: [RestaurantExample] }
   })
-  async findAll(@Query() dto: PaginationDto) {
+  async findAll(@Query() dto: ListRestaurantsDto) {
     return this.restaurantsService.findAll(dto);
   }
 
