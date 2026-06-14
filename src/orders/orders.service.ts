@@ -218,21 +218,23 @@ export class OrdersService {
       await this.couponsService.recordUsage(dto.promoCode, userId, order.id);
     }
 
-    this.notificationsService.send(
-      restaurant.managerId,
-      '🔔 New Order!',
-      `A new order of ₹${totalAmount} has been placed.`,
-      'ORDER_UPDATE',
-      { orderId: order.id },
-    );
+    if (order.isPaid || order.paymentMode === PaymentMethod.COD) {
+      this.notificationsService.send(
+        restaurant.managerId,
+        '🔔 New Order!',
+        `A new order of ₹${totalAmount} has been placed.`,
+        'ORDER_UPDATE',
+        { orderId: order.id },
+      ).catch(e => this.logger.error('Failed to send push notification to restaurant', e));
 
-    this.eventsGateway.emitNewOrderToRestaurant(restaurant.id, {
-      orderId: order.id,
-      totalAmount,
-      itemCount: order.items.length,
-      paymentMode: dto.paymentMode,
-      timestamp: new Date().toISOString(),
-    });
+      this.eventsGateway.emitNewOrderToRestaurant(restaurant.id, {
+        orderId: order.id,
+        totalAmount,
+        itemCount: order.items.length,
+        paymentMode: dto.paymentMode,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     this.eventsGateway.joinUserToOrderRoom(userId, order.id);
 
@@ -319,16 +321,16 @@ export class OrdersService {
 
     let title = 'Order Update';
     let body = `Your order is now ${status}`;
-    
+
     if (status === 'ACCEPTED') {
       title = 'Order Accepted! 🍔';
       body = 'The restaurant has accepted your order and is preparing it.';
     } else if (status === 'READY') {
       title = 'Order is Ready! 🛍️';
       body = 'The restaurant has finished preparing your order. Assigning a delivery partner...';
-      
+
       this.orderQueue.add(
-        'dispatch-order', 
+        'dispatch-order',
         { orderId: orderId, ignoredDriverIds: [], attemptCount: 0 },
         { jobId: `dispatch-${orderId}`, removeOnComplete: true }
       ).catch(e => this.logger.error('Failed to trigger auto-dispatch', e));
@@ -431,14 +433,14 @@ export class OrdersService {
         },
         ...ORDER_ITEMS_INCLUDE,
         restaurant: true,
-        customer: { 
-          select: { 
-            id: true, 
-            name: true, 
-            phoneNumber: true, 
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phoneNumber: true,
             email: true,
             image: true
-          } 
+          }
         },
         review: true
       }
@@ -475,7 +477,7 @@ export class OrdersService {
       currentLat: order.driver.currentLat,
       currentLng: order.driver.currentLng,
     } : null;
-    
+
     return {
       ...order,
       driver,
@@ -513,7 +515,7 @@ export class OrdersService {
     if (!currentOrder) {
       throw new NotFoundException("No active order found");
     }
-    
+
     const driver = currentOrder.driver ? {
       id: currentOrder.driver.id,
       name: currentOrder.driver.user.name,
@@ -613,11 +615,11 @@ export class OrdersService {
         lat: order.deliveryLat,
         lng: order.deliveryLng,
       };
-      
+
       const driver = order.driver ? {
-          ...order.driver,
-          phone: order.driver.user.phoneNumber,
-          name: order.driver.user.name,
+        ...order.driver,
+        phone: order.driver.user.phoneNumber,
+        name: order.driver.user.name,
       } : null;
 
       return {
@@ -659,11 +661,11 @@ export class OrdersService {
     });
 
     if (!order) throw new NotFoundException('Order not found');
-    
+
     if (user.role !== Role.ADMIN && order.restaurant.managerId !== user.id) {
       throw new ForbiddenException('You do not have permission to manage this restaurant.');
     }
-    
+
     if (order.status === 'DELIVERED' || order.status === 'CANCELLED') {
       throw new BadRequestException(`Cannot cancel a ${order.status} order.`);
     }
