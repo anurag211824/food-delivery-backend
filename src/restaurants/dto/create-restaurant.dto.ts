@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsNumber, IsArray, Min, Max } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsNumber, IsArray, Min, Max, IsBoolean } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateRestaurantDto {
@@ -58,4 +58,9 @@ export class CreateRestaurantDto {
   @IsString()
   @IsOptional()
   gstNumber?: string;
+
+  @ApiPropertyOptional({ example: true, description: 'Whether the restaurant is accepting orders' })
+  @IsBoolean()
+  @IsOptional()
+  isOpen?: boolean;
 }
