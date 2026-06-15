@@ -24,9 +24,16 @@ export class PartnerRequestsService {
         });
 
         if (existing) {
-            throw new ConflictException(
-                `You already have a restaurant application with status: ${existing.status}. You cannot submit another.`,
-            );
+            if (existing.status === 'REJECTED') {
+                // Delete previous rejected request to allow re-application
+                await this.prisma.restaurantRequest.delete({
+                    where: { userId },
+                });
+            } else {
+                throw new ConflictException(
+                    `You already have a restaurant application with status: ${existing.status}. You cannot submit another.`,
+                );
+            }
         }
 
         const request = await this.prisma.restaurantRequest.create({
@@ -65,9 +72,16 @@ export class PartnerRequestsService {
         });
 
         if (existing) {
-            throw new ConflictException(
-                `You already have a delivery partner application with status: ${existing.status}. You cannot submit another.`,
-            );
+            if (existing.status === 'REJECTED') {
+                // Delete previous rejected request to allow re-application
+                await this.prisma.deliveryPartnerRequest.delete({
+                    where: { userId },
+                });
+            } else {
+                throw new ConflictException(
+                    `You already have a delivery partner application with status: ${existing.status}. You cannot submit another.`,
+                );
+            }
         }
 
         const request = await this.prisma.deliveryPartnerRequest.create({

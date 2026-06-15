@@ -11,6 +11,11 @@ import { WsException } from '@nestjs/websockets';
 @Injectable()
 export class WsValidationPipe implements PipeTransform {
     async transform(value: any, { metatype }: ArgumentMetadata) {
+        // Skip validation/transformation if the value is a socket.io Socket instance
+        if (value && typeof value.emit === 'function' && typeof value.on === 'function') {
+            return value;
+        }
+
         if (!metatype || !this.shouldValidate(metatype)) {
             return value;
         }
@@ -33,6 +38,6 @@ export class WsValidationPipe implements PipeTransform {
 
     private shouldValidate(metatype: Function): boolean {
         const types: Function[] = [String, Boolean, Number, Array, Object];
-        return !types.includes(metatype);
+        return !types.includes(metatype) && metatype.name !== 'Socket';
     }
 }

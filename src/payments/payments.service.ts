@@ -8,6 +8,8 @@ import { CreateSavedPaymentDto } from './dto/create-saved-payment.dto';
 import { PaymentMethod, PaymentStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 import Razorpay from 'razorpay';
+import { EventsGateway } from '../events/events.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class PaymentsService {
@@ -15,7 +17,9 @@ export class PaymentsService {
 
     constructor(
         private prisma: PrismaService,
-        @Inject(CACHE_MANAGER) private cacheManager: Cache
+        @Inject(CACHE_MANAGER) private cacheManager: Cache,
+        private eventsGateway: EventsGateway,
+        private notificationsService: NotificationsService,
     ) {
         const keyId = process.env.RAZORPAY_KEY_ID;
         const keySecret = process.env.RAZORPAY_KEY_SECRET;
@@ -42,10 +46,36 @@ export class PaymentsService {
             throw new BadRequestException('Not authorized to pay for this order');
         }
         if (order.isPaid) {
-            throw new BadRequestException('Order is already paid');
+            return {
+                isPaid: true,
+                orderId: order.id,
+            };
         }
 
         try {
+            // Check if there is already a pending payment for this order
+            const existingPayment = await this.prisma.payment.findFirst({
+                where: {
+                    orderId: order.id,
+                    status: PaymentStatus.PENDING,
+                },
+                orderBy: { createdAt: 'desc' },
+            });
+
+            if (existingPayment) {
+                try {
+                    const razorpayOrder = await this.razorpay.orders.fetch(existingPayment.transactionId);
+                    return {
+                        razorpayOrder,
+                        paymentId: existingPayment.id,
+                        orderId: order.id,
+                        amount: order.totalAmount,
+                    };
+                } catch (err) {
+                    // Fallback to creating a new order if fetch fails
+                }
+            }
+
             const options = {
                 amount: Math.round(order.totalAmount * 100), // INR paise
                 currency: 'INR',
@@ -122,6 +152,37 @@ export class PaymentsService {
             });
         });
 
+        // ─── Notify the restaurant manager of the paid order ───────────
+        try {
+            const orderWithRestaurant = await this.prisma.order.findUnique({
+                where: { id: orderId },
+                include: {
+                    restaurant: true,
+                    items: true,
+                },
+            });
+
+            if (orderWithRestaurant) {
+                this.notificationsService.send(
+                    orderWithRestaurant.restaurant.managerId,
+                    '🔔 New Order!',
+                    `A new order of ₹${orderWithRestaurant.totalAmount} has been placed.`,
+                    'ORDER_UPDATE',
+                    { orderId: orderWithRestaurant.id },
+                ).catch(e => console.error('Failed to send push notification to restaurant', e));
+
+                this.eventsGateway.emitNewOrderToRestaurant(orderWithRestaurant.restaurant.id, {
+                    orderId: orderWithRestaurant.id,
+                    totalAmount: orderWithRestaurant.totalAmount,
+                    itemCount: orderWithRestaurant.items.length,
+                    paymentMode: orderWithRestaurant.paymentMode,
+                    timestamp: new Date().toISOString(),
+                });
+            }
+        } catch (error) {
+            console.error('Error in notifying restaurant manager:', error);
+        }
+
         return { success: true, message: 'Payment verified successfully' };
     }
 
@@ -148,6 +209,8 @@ export class PaymentsService {
         if (event === 'payment.captured' || event === 'order.paid') {
             const paymentEntity = body.payload.payment.entity;
             const rzpOrderId = paymentEntity.order_id;
+            let shouldNotify = false;
+            let orderIdToNotify = '';
 
             await this.prisma.$transaction(async (prisma) => {
                 const result = await prisma.payment.updateMany({
@@ -162,9 +225,43 @@ export class PaymentsService {
                             where: { id: paymentRecord.orderId },
                             data: { isPaid: true },
                         });
+                        shouldNotify = true;
+                        orderIdToNotify = paymentRecord.orderId;
                     }
                 }
             });
+
+            if (shouldNotify && orderIdToNotify) {
+                try {
+                    const orderWithRestaurant = await this.prisma.order.findUnique({
+                        where: { id: orderIdToNotify },
+                        include: {
+                            restaurant: true,
+                            items: true,
+                        },
+                    });
+
+                    if (orderWithRestaurant) {
+                        this.notificationsService.send(
+                            orderWithRestaurant.restaurant.managerId,
+                            '🔔 New Order!',
+                            `A new order of ₹${orderWithRestaurant.totalAmount} has been placed.`,
+                            'ORDER_UPDATE',
+                            { orderId: orderWithRestaurant.id },
+                        ).catch(e => console.error('Failed to send push notification to restaurant via webhook', e));
+
+                        this.eventsGateway.emitNewOrderToRestaurant(orderWithRestaurant.restaurant.id, {
+                            orderId: orderWithRestaurant.id,
+                            totalAmount: orderWithRestaurant.totalAmount,
+                            itemCount: orderWithRestaurant.items.length,
+                            paymentMode: orderWithRestaurant.paymentMode,
+                            timestamp: new Date().toISOString(),
+                        });
+                    }
+                } catch (error) {
+                    console.error('Error in webhook notifying restaurant manager:', error);
+                }
+            }
         } else if (event === 'payment.failed') {
             const paymentEntity = body.payload.payment.entity;
             const rzpOrderId = paymentEntity.order_id;
