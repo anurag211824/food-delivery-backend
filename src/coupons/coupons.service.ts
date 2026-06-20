@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCouponDto } from './dto/create-coupon.dto';
 
 @Injectable()
 export class CouponsService {
+    private readonly logger = new Logger(CouponsService.name);
     constructor(private readonly prisma: PrismaService) { }
 
     // ─── ADMIN: CREATE COUPON ─────────────────────────────────────────────
@@ -90,15 +91,19 @@ export class CouponsService {
     }
 
     // ─── INTERNAL: Record usage after order is placed ─────────────────────
-    async recordUsage(code: string, userId: string, orderId: string) {
+    async recordUsage(code: string, userId: string, orderId: string, discount?: number) {
         const coupon = await this.prisma.coupon.findUnique({
             where: { code: code.toUpperCase() },
         });
         if (!coupon) return;
 
+        const description = discount
+            ? `Saved ₹${discount} using ${coupon.code} on order #${orderId.slice(-6)}`
+            : `Used coupon ${coupon.code} on order #${orderId.slice(-6)}`;
+
         await this.prisma.$transaction([
             this.prisma.couponUsage.create({
-                data: { couponId: coupon.id, userId, orderId },
+                data: { couponId: coupon.id, userId, orderId, discount, description },
             }),
             this.prisma.coupon.update({
                 where: { id: coupon.id },

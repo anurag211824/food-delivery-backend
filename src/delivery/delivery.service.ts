@@ -340,6 +340,7 @@ export class DeliveryService {
         userId,
         driverEarnings,
         `DELIVERY_EARNING:${order.id}`,
+        `Delivery earning of ₹${driverEarnings} for order #${order.id.slice(-6)}`,
       );
     }
 
@@ -357,6 +358,7 @@ export class DeliveryService {
         order.restaurant.managerId,
         restaurantPayout,
         payoutType,
+        `Restaurant payout of ₹${restaurantPayout} for order #${order.id.slice(-6)}`,
       ).catch(e => this.logger.error(`Failed restaurant payout for order ${order.id}:`, e));
     }
 
@@ -371,6 +373,7 @@ export class DeliveryService {
           userId,
           cashToRemit,
           `COD_COLLECTION:${order.id}`,
+          `COD cash collection of ₹${cashToRemit} for order #${order.id.slice(-6)} — remit to platform`,
         );
 
         // ─── GAP 1: Negative wallet floor alert ───────────────────────

@@ -491,6 +491,7 @@ model WalletTransaction {
   amount    Float // Always positive — direction indicates credit/debit
   direction TransactionDirection // CREDIT or DEBIT
   type      String // "REFUND", "TOPUP", "ORDER_PAYMENT", "REFERRAL_BONUS"
+  description String?
   createdAt DateTime             @default(now())
 
   @@index([walletId])
@@ -576,6 +577,9 @@ model CouponUsage {
   userId   String
   user     User   @relation(fields: [userId], references: [id])
   orderId  String
+
+  discount    Float?  // Amount saved using this coupon
+  description String? // e.g. "Saved ₹50 using WELCOME20 on order #a1b2c3"
 
   usedAt DateTime @default(now())
 
@@ -810,6 +814,7 @@ model Settlement {
   commission   Float
   totalRevenue Float
   status       String   @default("PENDING") // PENDING, PAID
+  description  String?  // e.g. "Daily settlement for 15 orders on 2026-06-19"
   settledAt    DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, InternalServerErrorException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, InternalServerErrorException, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TopupWalletDto } from './dto/topup-wallet.dto';
 import { VerifyTopupDto } from './dto/verify-topup.dto';
@@ -9,13 +9,14 @@ import Razorpay from 'razorpay';
 
 @Injectable()
 export class WalletsService {
+    private readonly logger = new Logger(WalletsService.name);
     private razorpay: any;
 
     constructor(private prisma: PrismaService) {
         const keyId = process.env.RAZORPAY_KEY_ID;
         const keySecret = process.env.RAZORPAY_KEY_SECRET;
         if (!keyId || !keySecret) {
-            console.warn('[WalletsService] RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET not set. Razorpay wallet topups will fail.');
+            this.logger.warn('RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET not set. Razorpay wallet topups will fail.');
         }
         this.razorpay = new Razorpay({
             key_id: keyId || 'rzp_test_placeholder',
@@ -153,6 +154,7 @@ export class WalletsService {
                     amount: topupRequest.amount,
                     direction: TransactionDirection.CREDIT,
                     type: 'TOPUP',
+                    description: `Wallet topped up with ₹${topupRequest.amount}`,
                 },
             });
 
@@ -166,7 +168,7 @@ export class WalletsService {
         });
     }
 
-    async charge(userId: string, amount: number, reason: string) {
+    async charge(userId: string, amount: number, reason: string, description?: string) {
         // Ensure wallet exists before entering transaction
         const wallet = await this.getBalance(userId);
 
@@ -187,6 +189,7 @@ export class WalletsService {
                     amount: amount,
                     direction: TransactionDirection.DEBIT,
                     type: reason, // e.g. 'ORDER_PAYMENT'
+                    description,
                 },
             });
 
@@ -199,7 +202,7 @@ export class WalletsService {
         });
     }
 
-    async addFunds(userId: string, amount: number, reason: string) {
+    async addFunds(userId: string, amount: number, reason: string, description?: string) {
         const wallet = await this.getBalance(userId);
 
         return this.prisma.$transaction(async (prisma) => {
@@ -209,6 +212,7 @@ export class WalletsService {
                     amount: amount,
                     direction: TransactionDirection.CREDIT,
                     type: reason,
+                    description,
                 },
             });
 
@@ -227,7 +231,7 @@ export class WalletsService {
      * Used exclusively for COD settlement — the rider collected cash
      * and owes the platform/restaurant share.
      */
-    async forceCharge(userId: string, amount: number, reason: string) {
+    async forceCharge(userId: string, amount: number, reason: string, description?: string) {
         const wallet = await this.getBalance(userId);
 
         return this.prisma.$transaction(async (prisma) => {
@@ -237,6 +241,7 @@ export class WalletsService {
                     amount: amount,
                     direction: TransactionDirection.DEBIT,
                     type: reason,
+                    description,
                 },
             });
 
@@ -261,7 +266,7 @@ export class WalletsService {
         }
 
         // 1. Immediately deduct the funds (Lock in)
-        await this.charge(userId, dto.amount, 'WITHDRAWAL_HOLD');
+        await this.charge(userId, dto.amount, 'WITHDRAWAL_HOLD', `Withdrawal request of ₹${dto.amount} — funds held pending admin approval`);
 
         // 2. Create the withdrawal request
         return this.prisma.withdrawal.create({
@@ -335,6 +340,7 @@ export class WalletsService {
                 withdrawal.userId,
                 withdrawal.amount,
                 `WITHDRAWAL_REJECTED_REFUND:${id}`,
+                `Withdrawal of ₹${withdrawal.amount} was rejected — funds returned to wallet`,
             );
         }
 

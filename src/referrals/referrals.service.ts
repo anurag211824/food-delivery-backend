@@ -51,7 +51,8 @@ export class ReferralsService {
       await this.walletsService.addFunds(
         referrer.id,
         policy.referrerReward,
-        `REFERRAL_BONUS_FOR_INVITING_${userId}`
+        `REFERRAL_BONUS_FOR_INVITING_${userId}`,
+        `Referral bonus of ₹${policy.referrerReward} for inviting a friend`,
       );
     }
 
@@ -59,7 +60,8 @@ export class ReferralsService {
       await this.walletsService.addFunds(
         userId,
         policy.referredReward,
-        `REFERRAL_BONUS_WELCOME`
+        `REFERRAL_BONUS_WELCOME`,
+        `Welcome bonus of ₹${policy.referredReward} for joining via referral`,
       );
     }
 
@@ -112,7 +114,7 @@ export class ReferralsService {
         where: { wallet: { userId: referrer.id }, type: referrerReason },
       });
       if (!existingReferrerReward) {
-        await this.walletsService.addFunds(referrer.id, policy.referrerReward, referrerReason);
+        await this.walletsService.addFunds(referrer.id, policy.referrerReward, referrerReason, `Referral bonus of ₹${policy.referrerReward} for inviting a friend`);
       }
     }
     if (policy.referredReward > 0) {
@@ -121,7 +123,7 @@ export class ReferralsService {
         where: { wallet: { userId: newUserId }, type: referredReason },
       });
       if (!existingReferredReward) {
-        await this.walletsService.addFunds(newUserId, policy.referredReward, referredReason);
+        await this.walletsService.addFunds(newUserId, policy.referredReward, referredReason, `Welcome bonus of ₹${policy.referredReward} for joining via referral`);
       }
     }
   }

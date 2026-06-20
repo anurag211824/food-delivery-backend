@@ -199,7 +199,7 @@ export class OrdersService {
     // ─── Post-creation steps (wallet, coupon, notifications) ──────────────
     if (dto.paymentMode === PaymentMethod.WALLET) {
       try {
-        await this.walletsService.charge(userId, totalAmount, `ORDER_PAYMENT:${order.id}`);
+        await this.walletsService.charge(userId, totalAmount, `ORDER_PAYMENT:${order.id}`, `Payment of ₹${totalAmount} for order #${order.id.slice(-6)}`);
         await this.prisma.order.update({
           where: { id: order.id },
           data: { isPaid: true },
@@ -215,7 +215,7 @@ export class OrdersService {
     }
 
     if (dto.promoCode && discount > 0) {
-      await this.couponsService.recordUsage(dto.promoCode, userId, order.id);
+      await this.couponsService.recordUsage(dto.promoCode, userId, order.id, discount);
     }
 
     if (order.isPaid || order.paymentMode === PaymentMethod.COD) {
@@ -695,6 +695,7 @@ export class OrdersService {
         order.customerId,
         order.totalAmount,
         `REFUND:${order.id}`,
+        `Refund of ₹${order.totalAmount} for cancelled order #${order.id.slice(-6)}`,
       );
 
       await this.prisma.refund.create({

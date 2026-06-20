@@ -62,6 +62,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
                             order.customerId,
                             order.totalAmount,
                             `REFUND_AUTO_CANCEL:${order.id}`,
+                            `Auto-refund of ₹${order.totalAmount} — order #${order.id.slice(-6)} cancelled (stale on startup)`,
                         );
                         await this.prisma.refund.create({
                             data: {
@@ -372,6 +373,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
                 order.customerId,
                 order.totalAmount,
                 `REFUND_AUTO_CANCEL:${order.id}`,
+                `Auto-refund of ₹${order.totalAmount} — order #${order.id.slice(-6)} cancelled (restaurant didn't respond)`,
             );
             await this.prisma.refund.create({
                 data: {
@@ -435,6 +437,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
                 order.customerId,
                 order.totalAmount,
                 `REFUND_AUTO_CANCEL:${order.id}`,
+                `Auto-refund of ₹${order.totalAmount} — order #${order.id.slice(-6)} cancelled (no delivery partner found)`,
             );
             await this.prisma.refund.create({
                 data: {

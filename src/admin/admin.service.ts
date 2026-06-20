@@ -515,7 +515,8 @@ export class AdminService {
             const walletTransaction = await this.walletsService.addFunds(
                 order.customerId,
                 dto.amount,
-                `MANUAL_REFUND:${order.id}`
+                `MANUAL_REFUND:${order.id}`,
+                `Manual refund of ₹${dto.amount} for order #${order.id.slice(-6)} — ${dto.reason}`,
             );
 
             return { refund, walletTransaction };

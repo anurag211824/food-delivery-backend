@@ -92,6 +92,7 @@ export class PayoutsService {
         }
 
         // 4. Record the settlement in database
+        const dateLabel = startOfYesterday.toISOString().slice(0, 10);
         await this.prisma.settlement.create({
           data: {
             restaurantId: restaurant.id,
@@ -99,6 +100,7 @@ export class PayoutsService {
             commission: totalCommission,
             amount: netPayout,
             status: 'PENDING',
+            description: `Daily settlement for ${orders.length} order${orders.length > 1 ? 's' : ''} on ${dateLabel} — ${restaurant.name}`,
           },
         });
 

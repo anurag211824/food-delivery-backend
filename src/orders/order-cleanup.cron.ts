@@ -84,6 +84,7 @@ export class OrderCleanupCron {
                             order.customerId,
                             order.totalAmount,
                             `REFUND_CLEANUP:${order.id}`,
+                            `Auto-refund of ₹${order.totalAmount} — order #${order.id.slice(-6)} cancelled by system cleanup`,
                         );
                         await this.prisma.refund.create({
                             data: {

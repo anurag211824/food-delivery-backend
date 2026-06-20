@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, Inject } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, InternalServerErrorException, Inject, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
@@ -13,6 +13,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class PaymentsService {
+    private readonly logger = new Logger(PaymentsService.name);
     private razorpay: any;
 
     constructor(
@@ -101,6 +102,7 @@ export class PaymentsService {
                 amount: order.totalAmount,
             };
         } catch (error: any) {
+            this.logger.error(`Failed to create Razorpay order for order ${orderId}`, { userId, orderId, error: error.message });
             throw new InternalServerErrorException(error.message || 'Error creating Razorpay order');
         }
     }
@@ -169,7 +171,7 @@ export class PaymentsService {
                     `A new order of ₹${orderWithRestaurant.totalAmount} has been placed.`,
                     'ORDER_UPDATE',
                     { orderId: orderWithRestaurant.id },
-                ).catch(e => console.error('Failed to send push notification to restaurant', e));
+                ).catch(e => this.logger.error(`Failed to send push notification to restaurant for order ${orderWithRestaurant.id}`, e));
 
                 this.eventsGateway.emitNewOrderToRestaurant(orderWithRestaurant.restaurant.id, {
                     orderId: orderWithRestaurant.id,
@@ -180,7 +182,7 @@ export class PaymentsService {
                 });
             }
         } catch (error) {
-            console.error('Error in notifying restaurant manager:', error);
+            this.logger.error(`Error notifying restaurant manager after payment verification:`, error);
         }
 
         return { success: true, message: 'Payment verified successfully' };
@@ -248,7 +250,7 @@ export class PaymentsService {
                             `A new order of ₹${orderWithRestaurant.totalAmount} has been placed.`,
                             'ORDER_UPDATE',
                             { orderId: orderWithRestaurant.id },
-                        ).catch(e => console.error('Failed to send push notification to restaurant via webhook', e));
+                        ).catch(e => this.logger.error(`Failed to send push notification to restaurant via webhook for order ${orderWithRestaurant.id}`, e));
 
                         this.eventsGateway.emitNewOrderToRestaurant(orderWithRestaurant.restaurant.id, {
                             orderId: orderWithRestaurant.id,
@@ -259,7 +261,7 @@ export class PaymentsService {
                         });
                     }
                 } catch (error) {
-                    console.error('Error in webhook notifying restaurant manager:', error);
+                    this.logger.error(`Error in webhook notifying restaurant manager for order ${orderIdToNotify}:`, error);
                 }
             }
         } else if (event === 'payment.failed') {
