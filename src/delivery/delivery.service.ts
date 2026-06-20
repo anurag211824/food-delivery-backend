@@ -254,8 +254,10 @@ export class DeliveryService {
 
     this.notificationsService.send(
       order.customerId,
-      'Order On The Way! 🛵',
-      `${profile.user.name} has picked up your order and is on the way. Give OTP ${order.otp} to the rider for a safe delivery.`,
+      // Move the OTP to the title so it's visible instantly without expansion
+      `On the way! Code: ${order.otp}`,
+      // Keep the body conversational but clear
+      `${profile.user.name} is arriving with your order. Please have your code ready for the rider.`,
       'ORDER_UPDATE',
       { orderId, status: 'ON_THE_WAY' }
     ).catch(e => this.logger.error('Failed to send order on the way push', e));
