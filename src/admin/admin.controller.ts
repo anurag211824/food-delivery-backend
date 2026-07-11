@@ -11,6 +11,7 @@ import { AdminService } from './admin.service';
 import { PayoutsService } from '../payouts/payouts.service';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { CreateUserDto } from './dto/create-user.dto';
+import { CreateStoreDto } from './dto/create-store.dto';
 import { ManualRefundDto } from './dto/manual-refund.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -60,6 +61,14 @@ export class AdminController {
     @ApiResponse({ status: 201, description: 'User created successfully' })
     async createUser(@Body() dto: CreateUserDto) {
         return this.adminService.createUser(dto);
+    }
+
+    @Post('stores')
+    @ApiOperation({ summary: '[Admin] Manually create a grocery store', description: 'Directly onboard/create an Instamart grocery store and promote its manager.' })
+    @ApiBody({ type: CreateStoreDto })
+    @ApiResponse({ status: 201, description: 'Store created successfully' })
+    async createStore(@Body() dto: CreateStoreDto) {
+        return this.adminService.createStore(dto);
     }
 
     // ─── BAN / VERIFY RESTAURANT ──────────────────────────────────────────────
@@ -116,15 +125,15 @@ export class AdminController {
     @Get('requests')
     @ApiOperation({
         summary: '[Admin] List partner applications',
-        description: 'List restaurant or delivery partner applications. Filter by status to see what is pending.',
+        description: 'List restaurant, delivery partner, or grocery store applications. Filter by status to see what is pending.',
     })
-    @ApiQuery({ name: 'type', required: true, enum: ['restaurant', 'delivery'], description: 'Type of request to list' })
+    @ApiQuery({ name: 'type', required: true, enum: ['restaurant', 'delivery', 'store'], description: 'Type of request to list' })
     @ApiQuery({ name: 'status', required: false, enum: RequestStatus, description: 'Filter by status (default: all)' })
     @ApiResponse({ status: 200, description: 'List of requests with the applicant\'s user details' })
     @ApiQuery({ name: 'page', required: false, example: 1 })
     @ApiQuery({ name: 'limit', required: false, example: 20 })
     async listRequests(
-        @Query('type') type: 'restaurant' | 'delivery',
+        @Query('type') type: 'restaurant' | 'delivery' | 'store',
         @Query('status') status?: RequestStatus,
         @Query('page') page = '1',
         @Query('limit') limit = '20',
@@ -201,6 +210,39 @@ export class AdminController {
     @ApiResponse({ status: 200, description: 'Request rejected.' })
     async rejectDeliveryRequest(@Param('id') id: string, @Body('reason') reason?: string) {
         return this.adminService.rejectDeliveryRequest(id, reason);
+    }
+
+    // ─── STORE REQUEST: APPROVE / REJECT ─────────────────────────────────────
+    @Patch('requests/store/:id/approve')
+    @ApiOperation({
+        summary: '[Admin] Approve a grocery store application',
+        description: 'Atomically: marks request APPROVED + sets user role to STORE_MANAGER + creates the Store record.',
+    })
+    @ApiParam({ name: 'id', description: 'StoreRequest ID' })
+    @ApiResponse({ status: 200, description: 'Approved — Store and manager role created.' })
+    @ApiResponse({ status: 400, description: 'Request is not in PENDING state' })
+    @ApiResponse({ status: 404, description: 'Request not found' })
+    async approveStoreRequest(@Param('id') id: string) {
+        return this.adminService.approveStoreRequest(id);
+    }
+
+    @Patch('requests/store/:id/reject')
+    @ApiOperation({
+        summary: '[Admin] Reject a grocery store application',
+        description: 'Marks the request as REJECTED with an optional reason. User stays as CUSTOMER.',
+    })
+    @ApiParam({ name: 'id', description: 'StoreRequest ID' })
+    @ApiBody({
+        schema: {
+            type: 'object',
+            properties: {
+                reason: { type: 'string', example: 'GST documentation could not be verified.' },
+            },
+        },
+    })
+    @ApiResponse({ status: 200, description: 'Request rejected.' })
+    async rejectStoreRequest(@Param('id') id: string, @Body('reason') reason?: string) {
+        return this.adminService.rejectStoreRequest(id, reason);
     }
 
     // ─── PLATFORM STATS ───────────────────────────────────────────────────

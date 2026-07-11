@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiBody } from '@nes
 import { PartnerRequestsService } from './partner-requests.service';
 import { CreateRestaurantRequestDto } from './dto/create-restaurant-request.dto';
 import { CreateDeliveryRequestDto } from './dto/create-delivery-request.dto';
+import { CreateStoreRequestDto } from './dto/create-store-request.dto';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthenticatedRequest } from '../auth/auth.types';
 
@@ -83,5 +84,41 @@ export class PartnerRequestsController {
     @ApiResponse({ status: 404, description: 'No application found for your account' })
     async getMyDeliveryRequest(@Req() req: AuthenticatedRequest) {
         return this.partnerRequestsService.getMyDeliveryRequest(req.user.id);
+    }
+
+    // ─── GROCERY STORE: SUBMIT ────────────────────────────────────────────────
+    @Post('store')
+    @ApiOperation({
+        summary: 'Submit a grocery store partner application',
+        description: 'Any logged-in user can apply to become a grocery store partner. Submit the store details — the admin will review and approve or reject the request. You can only have one active application.',
+    })
+    @ApiBody({ type: CreateStoreRequestDto })
+    @ApiResponse({
+        status: 201,
+        description: 'Application submitted successfully. Status is PENDING.',
+        schema: { example: { id: 'sreq_123', status: 'PENDING', storeName: "Priya's Grocery Mart" } },
+    })
+    @ApiResponse({ status: 409, description: 'You already have an existing application' })
+    async submitStoreRequest(
+        @Body() dto: CreateStoreRequestDto,
+        @Req() req: AuthenticatedRequest,
+    ) {
+        return this.partnerRequestsService.submitStoreRequest(req.user.id, dto);
+    }
+
+    // ─── GROCERY STORE: GET MY STATUS ─────────────────────────────────────────
+    @Get('store/me')
+    @ApiOperation({
+        summary: 'Get my grocery store application status',
+        description: 'Check the current status of your grocery store partner application (PENDING, APPROVED, or REJECTED).',
+    })
+    @ApiResponse({
+        status: 200,
+        description: 'Your grocery store application',
+        schema: { example: { id: 'sreq_123', status: 'PENDING', storeName: "Priya's Grocery Mart", createdAt: '2026-03-09T00:00:00Z' } },
+    })
+    @ApiResponse({ status: 404, description: 'No application found for your account' })
+    async getMyStoreRequest(@Req() req: AuthenticatedRequest) {
+        return this.partnerRequestsService.getMyStoreRequest(req.user.id);
     }
 }

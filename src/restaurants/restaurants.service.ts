@@ -564,6 +564,7 @@ export class RestaurantsService {
 
     const counts: Record<string, { orders: number; revenue: number; name: string }> = {};
     items.forEach(item => {
+      if (!item.menuItemId || !item.menuItem) return; // Skip grocery items without menuItemId
       if (!counts[item.menuItemId]) {
         counts[item.menuItemId] = { orders: 0, revenue: 0, name: item.menuItem.name };
       }

@@ -87,6 +87,20 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
 
+      // 6b. If user is a STORE_MANAGER, auto-join them to their store room
+      if ((session.user as any).role === 'STORE_MANAGER') {
+        const store = await this.prisma.store.findUnique({
+          where: { managerId: session.user.id },
+          select: { id: true },
+        });
+        if (store) {
+          const storeRoom = `store_${store.id}`;
+          client.join(storeRoom);
+          client.data.storeId = store.id;
+          this.logger.log(`Store manager ${client.id} auto-joined room ${storeRoom}`);
+        }
+      }
+
       // 7. Auto-rejoin active order rooms on reconnect
       //    This handles internet drops, app restarts, and background kills
       await this.rejoinActiveOrderRooms(client, session.user);
@@ -118,6 +132,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       where: { id: orderId },
       include: {
         restaurant: { select: { managerId: true } },
+        store: { select: { managerId: true } },
         driver: { select: { userId: true } },
       },
     });
@@ -127,7 +142,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const isCustomer = order.customerId === user.id;
-    const isManager = order.restaurant.managerId === user.id;
+    const isManager = order.restaurant?.managerId === user.id || order.store?.managerId === user.id;
     const isDriver = order.driver?.userId === user.id;
     const isAdmin = user.role === 'ADMIN';
 
@@ -213,6 +228,13 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const restaurantRoom = `restaurant_${restaurantId}`;
     this.server.to(restaurantRoom).emit('new_order', payload);
     this.logger.log(`Emitted new_order to room ${restaurantRoom}`);
+  }
+
+  /** Notify a grocery store's live dashboard about a new incoming order */
+  emitNewOrderToStore(storeId: string, payload: any) {
+    const storeRoom = `store_${storeId}`;
+    this.server.to(storeRoom).emit('new_order', payload);
+    this.logger.log(`Emitted new_order to room ${storeRoom}`);
   }
 
   /** Notify the order room that a driver has been assigned */
@@ -319,6 +341,20 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         if (restaurant) {
           const activeOrders = await this.prisma.order.findMany({
             where: { restaurantId: restaurant.id, status: activeFilter },
+            select: { id: true },
+          });
+          orderIds = activeOrders.map(o => o.id);
+        }
+
+      } else if (role === 'STORE_MANAGER') {
+        // Store Manager: Rejoin all active orders for their dark store
+        const store = await this.prisma.store.findUnique({
+          where: { managerId: userId },
+          select: { id: true },
+        });
+        if (store) {
+          const activeOrders = await this.prisma.order.findMany({
+            where: { storeId: store.id, status: activeFilter },
             select: { id: true },
           });
           orderIds = activeOrders.map(o => o.id);

@@ -7,6 +7,7 @@ import { EventsModule } from '../events/events.module';
 import { CouponsModule } from '../coupons/coupons.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { CommunicationsModule } from '../communications/communications.module';
+import { StoreManagementModule } from '../store-management/store-management.module';
 import { OrderQueueProcessor } from './order-queue.processor';
 import { OrderCleanupCron } from './order-cleanup.cron';
 
@@ -15,7 +16,7 @@ import { OrderCleanupCron } from './order-cleanup.cron';
     BullModule.registerQueue({
       name: 'orders',
     }),
-    WalletsModule, EventsModule, CouponsModule, NotificationsModule, CommunicationsModule],
+    WalletsModule, EventsModule, CouponsModule, NotificationsModule, CommunicationsModule, StoreManagementModule],
   controllers: [OrdersController],
   providers: [OrdersService, OrderQueueProcessor, OrderCleanupCron],
 })

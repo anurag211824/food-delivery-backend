@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRestaurantRequestDto } from './dto/create-restaurant-request.dto';
 import { CreateDeliveryRequestDto } from './dto/create-delivery-request.dto';
+import { CreateStoreRequestDto } from './dto/create-store-request.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
@@ -128,6 +129,60 @@ export class PartnerRequestsService {
         });
         if (!request) {
             throw new NotFoundException('No delivery partner application found for your account.');
+        }
+        return request;
+    }
+
+    // ─── SUBMIT STORE APPLICATION ─────────────────────────────────────────────
+    async submitStoreRequest(userId: string, dto: CreateStoreRequestDto) {
+        const existing = await this.prisma.storeRequest.findUnique({
+            where: { userId },
+        });
+
+        if (existing) {
+            if (existing.status === 'REJECTED') {
+                // Delete previous rejected request to allow re-application
+                await this.prisma.storeRequest.delete({
+                    where: { userId },
+                });
+            } else {
+                throw new ConflictException(
+                    `You already have a grocery store application with status: ${existing.status}. You cannot submit another.`,
+                );
+            }
+        }
+
+        const request = await this.prisma.storeRequest.create({
+            data: {
+                userId,
+                storeName: dto.storeName,
+                description: dto.description,
+                address: dto.address,
+                lat: dto.lat,
+                lng: dto.lng,
+                gstNumber: dto.gstNumber,
+                logoUrl: dto.logoUrl,
+                bannerUrl: dto.bannerUrl,
+            },
+        });
+
+        await this.notifications.send(
+            userId,
+            'Grocery Store Application Submitted',
+            `Your application for ${dto.storeName} is under review.`,
+            'PARTNER_REQUEST'
+        );
+
+        return request;
+    }
+
+    // ─── GET MY STORE REQUEST ─────────────────────────────────────────────────
+    async getMyStoreRequest(userId: string) {
+        const request = await this.prisma.storeRequest.findUnique({
+            where: { userId },
+        });
+        if (!request) {
+            throw new NotFoundException('No grocery store application found for your account.');
         }
         return request;
     }

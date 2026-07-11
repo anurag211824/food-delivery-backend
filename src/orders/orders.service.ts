@@ -4,12 +4,13 @@ import { Queue } from 'bullmq';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { PaginationDto } from '../common/pagination.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { OrderStatus, PaymentMethod, Role, User } from '@prisma/client';
+import { OrderStatus, PaymentMethod, Role, User, OrderType } from '@prisma/client';
 import { WalletsService } from '../wallets/wallets.service';
 import { EventsGateway } from '../events/events.gateway';
 import { CouponsService } from '../coupons/coupons.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CommunicationsService } from '../communications/communications.service';
+import { StoreManagementService } from '../store-management/store-management.service';
 
 /** Reusable deep include for order items */
 const ORDER_ITEMS_INCLUDE = {
@@ -18,6 +19,7 @@ const ORDER_ITEMS_INCLUDE = {
       menuItem: true,
       variant: true,
       selectedAddons: true,
+      product: true, // 🚀 Added
     },
   },
 } as const;
@@ -32,10 +34,230 @@ export class OrdersService {
     private couponsService: CouponsService,
     private notificationsService: NotificationsService,
     private communicationsService: CommunicationsService,
+    private storeManagementService: StoreManagementService,
     @InjectQueue('orders') private orderQueue: Queue,
   ) { }
 
   async create(userId: string, dto: CreateOrderDto) {
+    const orderType = dto.orderType ?? OrderType.FOOD;
+
+    if (orderType === OrderType.GROCERY) {
+      if (!dto.storeId) {
+        throw new BadRequestException("storeId is required for grocery orders.");
+      }
+      const store = await this.prisma.store.findUnique({
+        where: { id: dto.storeId },
+      });
+
+      if (!store) throw new NotFoundException("Store not found");
+      if (!store.isOpen) throw new BadRequestException("Store is closed");
+      if (!store.isActive || !store.isVerified) throw new BadRequestException("Store is not active or verified.");
+
+      const userAddress = dto.addressId
+        ? await this.prisma.address.findUnique({ where: { id: dto.addressId, userId } })
+        : await this.prisma.address.findFirst({ where: { userId, isDefault: true } });
+
+      if (!userAddress) {
+        throw new BadRequestException("Delivery address not found. Please add an address first.");
+      }
+
+      const productIds = dto.items.map(i => i.productId).filter((id): id is string => !!id);
+      if (productIds.length !== dto.items.length) {
+        throw new BadRequestException("All items in a grocery order must specify a productId.");
+      }
+
+      const dbInventory = await this.prisma.storeInventory.findMany({
+        where: {
+          storeId: dto.storeId,
+          productId: { in: productIds },
+        },
+        include: { product: true },
+      });
+
+      if (dbInventory.length !== new Set(productIds).size) {
+        throw new BadRequestException("Some items are invalid or unavailable at this store.");
+      }
+
+      let itemTotal = 0;
+      const orderItemsData: any[] = [];
+      const inventoryCheckList: { storeId: string; productId: string; quantity: number; name: string }[] = [];
+
+      for (const item of dto.items) {
+        const invItem = dbInventory.find(d => d.productId === item.productId);
+        if (!invItem) throw new BadRequestException(`Product ${item.productId} not found in this store.`);
+        if (!invItem.isAvailable) throw new BadRequestException(`"${invItem.product.name}" is currently unavailable.`);
+        if (invItem.stock < item.quantity) {
+          throw new BadRequestException(`Insufficient stock for "${invItem.product.name}". Available: ${invItem.stock}, requested: ${item.quantity}`);
+        }
+
+        const unitPrice = invItem.salePrice ?? invItem.price;
+        const lineTotal = unitPrice * item.quantity;
+        itemTotal += lineTotal;
+
+        orderItemsData.push({
+          productId: invItem.productId,
+          quantity: item.quantity,
+          itemName: invItem.product.name,
+          unitPrice,
+          addonsPrice: 0,
+          totalPrice: lineTotal,
+        });
+
+        inventoryCheckList.push({
+          storeId: dto.storeId,
+          productId: invItem.productId,
+          quantity: item.quantity,
+          name: invItem.product.name,
+        });
+      }
+
+      let deliveryCharge = 30;
+      if (userAddress && store.lat && store.lng) {
+        const distanceKm = this.calculateDistance(
+          userAddress.lat, userAddress.lng,
+          store.lat, store.lng,
+        );
+        deliveryCharge = Math.min(60, Math.round(15 + distanceKm * 7));
+      }
+
+      let discount = 0;
+      if (dto.promoCode) {
+        const result = await this.couponsService.validate(dto.promoCode, userId, itemTotal);
+        discount = result.discount;
+      }
+
+      const commission = Math.round(itemTotal * 0.10 * 100) / 100;
+      const tax = Math.round(itemTotal * 0.05 * 100) / 100;
+      const platformFee = 5;
+      const driverTip = dto.driverTip ?? 0;
+      const totalAmount = Math.round((itemTotal + tax + deliveryCharge + platformFee + driverTip - discount) * 100) / 100;
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+      // ─── Create order atomically with inventory updates ──────────────────
+      const order = await this.prisma.$transaction(async (tx) => {
+        // Concurrency-safe stock updates:
+        for (const check of inventoryCheckList) {
+          const updated = await tx.storeInventory.updateMany({
+            where: {
+              storeId: check.storeId,
+              productId: check.productId,
+              stock: { gte: check.quantity },
+            },
+            data: {
+              stock: { decrement: check.quantity },
+            },
+          });
+          if (updated.count === 0) {
+            throw new BadRequestException(`Could not allocate stock for "${check.name}" (insufficient inventory).`);
+          }
+        }
+
+        return tx.order.create({
+          data: {
+            customerId: userId,
+            storeId: dto.storeId,
+            type: OrderType.GROCERY,
+            status: 'PLACED',
+            otp,
+            itemTotal,
+            tax,
+            deliveryCharge,
+            platformFee,
+            driverTip,
+            discount,
+            promoCode: dto.promoCode?.toUpperCase() || null,
+            commission,
+            totalAmount,
+            paymentMode: dto.paymentMode,
+            isPaid: false,
+            addressId: userAddress.id,
+            deliveryAddressLine: userAddress.addressLine,
+            deliveryLandmark: userAddress.landmark,
+            deliveryReceiverName: userAddress.receiverName,
+            deliveryReceiverPhone: userAddress.receiverPhone,
+            deliveryLat: userAddress.lat,
+            deliveryLng: userAddress.lng,
+            items: {
+              create: orderItemsData,
+            },
+          },
+          include: ORDER_ITEMS_INCLUDE,
+        });
+      });
+
+      // ─── Post-creation steps ──────────────────────────────────────────
+      if (dto.paymentMode === PaymentMethod.WALLET) {
+        try {
+          await this.walletsService.charge(userId, totalAmount, `ORDER_PAYMENT:${order.id}`, `Payment of ₹${totalAmount} for order #${order.id.slice(-6)}`);
+          await this.prisma.order.update({
+            where: { id: order.id },
+            data: { isPaid: true },
+          });
+          order.isPaid = true;
+        } catch (err) {
+          // Revert inventory stock decrement if payment fails
+          await this.prisma.$transaction(async (tx) => {
+            for (const check of inventoryCheckList) {
+              await tx.storeInventory.update({
+                where: { storeId_productId: { storeId: check.storeId, productId: check.productId } },
+                data: { stock: { increment: check.quantity } },
+              });
+            }
+          });
+
+          await this.prisma.order.update({
+            where: { id: order.id },
+            data: { status: 'CANCELLED', cancellationReason: 'Insufficient wallet balance' },
+          });
+          throw err;
+        }
+      }
+
+      if (dto.promoCode && discount > 0) {
+        await this.couponsService.recordUsage(dto.promoCode, userId, order.id, discount);
+      }
+
+      if (order.isPaid || order.paymentMode === PaymentMethod.COD) {
+        this.notificationsService.send(
+          store.managerId,
+          '🔔 New Instamart Order!',
+          `A new grocery order of ₹${totalAmount} has been placed.`,
+          'ORDER_UPDATE',
+          { orderId: order.id },
+        ).catch(e => this.logger.error('Failed to send push notification to store manager', e));
+
+        this.eventsGateway.emitNewOrderToStore(store.id, {
+          orderId: order.id,
+          totalAmount,
+          itemCount: order.items.length,
+          paymentMode: dto.paymentMode,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      this.eventsGateway.joinUserToOrderRoom(userId, order.id);
+
+      if (!order.isPaid && order.paymentMode !== 'COD') {
+        await this.orderQueue.add(
+          'cancel-unpaid-order',
+          { orderId: order.id },
+          { delay: 10 * 60 * 1000 },
+        );
+      }
+
+      await this.orderQueue.add(
+        'assign-driver',
+        { orderId: order.id },
+        { attempts: 3, backoff: 5000 },
+      );
+
+      return order;
+    }
+
+    // ─── FOOD ORDER FLOW (Original logic) ───────────────────────────────────
+    if (!dto.restaurantId) {
+      throw new BadRequestException("restaurantId is required for food orders.");
+    }
     const restaurant = await this.prisma.restaurant.findUnique({
       where: { id: dto.restaurantId },
     });
@@ -52,7 +274,7 @@ export class OrdersService {
     }
 
     // ─── Fetch all menu items with their variants and addon options ────────
-    const menuItemIds = dto.items.map(i => i.menuItemId);
+    const menuItemIds = dto.items.map(i => i.menuItemId).filter((id): id is string => typeof id === 'string');
     const dbItems = await this.prisma.menuItem.findMany({
       where: {
         id: { in: menuItemIds },
@@ -276,6 +498,7 @@ export class OrdersService {
       where: { id: orderId },
       include: {
         restaurant: true,
+        store: true,
         ...ORDER_ITEMS_INCLUDE,
       }
     });
@@ -286,8 +509,11 @@ export class OrdersService {
       return order;
     }
 
-    if (actor.role !== Role.ADMIN && order.restaurant.managerId !== actor.id) {
-      throw new ForbiddenException("You do not have permission to manage this restaurant")
+    const merchantManagerId = order.restaurant?.managerId ?? order.store?.managerId;
+    // Allow: Admin, merchant manager, or the assigned store picker
+    const isAssignedPicker = actor.role === Role.STORE_PICKER && order.pickerId !== null;
+    if (actor.role !== Role.ADMIN && merchantManagerId !== actor.id && !isAssignedPicker) {
+      throw new ForbiddenException("You do not have permission to manage this order.")
     }
 
     const allowedTransitions: Partial<Record<OrderStatus, OrderStatus[]>> = {
@@ -304,6 +530,33 @@ export class OrdersService {
       throw new BadRequestException(
         `Cannot change order status from "${order.status}" to "${status}".`,
       );
+    }
+
+    // If a grocery order gets cancelled or refused, revert the allocated inventory back
+    if (order.type === OrderType.GROCERY && ['CANCELLED', 'REFUSED'].includes(status) && !['CANCELLED', 'REFUSED'].includes(order.status)) {
+      await this.prisma.$transaction(async (tx) => {
+        for (const item of order.items) {
+          if (item.productId && order.storeId) {
+            await tx.storeInventory.update({
+              where: {
+                storeId_productId: {
+                  storeId: order.storeId,
+                  productId: item.productId,
+                },
+              },
+              data: {
+                stock: { increment: item.quantity },
+              },
+            });
+          }
+        }
+      });
+
+      // Release the assigned picker so they can take new orders
+      if (order.pickerId) {
+        this.storeManagementService.releasePickerFromOrder(orderId, order.pickerId)
+          .catch(e => this.logger.error(`Failed to release picker for cancelled order ${orderId}:`, e));
+      }
     }
 
     const updatedOrder = await this.prisma.order.update({
@@ -324,10 +577,26 @@ export class OrdersService {
 
     if (status === 'ACCEPTED') {
       title = 'Order Accepted! 🍔';
-      body = 'The restaurant has accepted your order and is preparing it.';
+      body = order.type === OrderType.GROCERY
+        ? 'The store has accepted your order and a picker is packing it.'
+        : 'The restaurant has accepted your order and is preparing it.';
+
+      // Auto-assign a picker for grocery orders
+      if (order.type === OrderType.GROCERY && order.storeId) {
+        this.storeManagementService.autoAssignPicker(orderId, order.storeId)
+          .catch(e => this.logger.error(`Failed to auto-assign picker for order ${orderId}:`, e));
+      }
     } else if (status === 'READY') {
       title = 'Order is Ready! 🛍️';
-      body = 'The restaurant has finished preparing your order. Assigning a delivery partner...';
+      body = order.type === OrderType.GROCERY
+        ? 'Your groceries are packed and ready! Assigning a delivery partner...'
+        : 'The restaurant has finished preparing your order. Assigning a delivery partner...';
+
+      // Mark the picker's job as complete for grocery orders
+      if (order.type === OrderType.GROCERY && order.pickerId) {
+        this.storeManagementService.completePickingForOrder(orderId, order.pickerId)
+          .catch(e => this.logger.error(`Failed to complete picking for order ${orderId}:`, e));
+      }
 
       this.orderQueue.add(
         'dispatch-order',
@@ -353,7 +622,7 @@ export class OrdersService {
           templateData: {
             userName: deliveredCustomer.name,
             orderId: orderId,
-            restaurantName: order.restaurant.name,
+            restaurantName: order.restaurant?.name ?? order.store?.name ?? 'Merchant',
             totalAmount: order.totalAmount,
             reviewUrl: `${process.env.CUSTOMER_APP_SCHEME}://(tabs)/orders/${orderId}?openReview=true`,
             items: order.items.map(item => ({
@@ -433,6 +702,7 @@ export class OrdersService {
         },
         ...ORDER_ITEMS_INCLUDE,
         restaurant: true,
+        store: true,
         customer: {
           select: {
             id: true,
@@ -450,7 +720,7 @@ export class OrdersService {
 
     if (actor) {
       const isCustomer = order.customerId === actor.id;
-      const isManager = order.restaurant.managerId === actor.id;
+      const isManager = order.restaurant?.managerId === actor.id || order.store?.managerId === actor.id;
       const isDriver = order.driver?.userId === actor.id;
       const isAdmin = actor.role === Role.ADMIN;
 
@@ -657,20 +927,21 @@ export class OrdersService {
   async cancelOrderByManager(orderId: string, user: Pick<User, 'id' | 'role'>, reason: string) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { restaurant: true },
+      include: { restaurant: true, store: true },
     });
 
     if (!order) throw new NotFoundException('Order not found');
 
-    if (user.role !== Role.ADMIN && order.restaurant.managerId !== user.id) {
-      throw new ForbiddenException('You do not have permission to manage this restaurant.');
+    const merchantManagerId = order.restaurant?.managerId ?? order.store?.managerId;
+    if (user.role !== Role.ADMIN && merchantManagerId !== user.id) {
+      throw new ForbiddenException('You do not have permission to manage this merchant.');
     }
 
     if (order.status === 'DELIVERED' || order.status === 'CANCELLED') {
       throw new BadRequestException(`Cannot cancel a ${order.status} order.`);
     }
 
-    return this.processOrderCancellation(order, reason || 'Cancelled by restaurant');
+    return this.processOrderCancellation(order, reason || 'Cancelled by merchant');
   }
 
   // ─── SHARED CANCELLATION + AUTO-REFUND LOGIC ───────────────────────────

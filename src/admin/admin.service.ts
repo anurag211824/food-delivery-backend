@@ -3,6 +3,7 @@ import { RequestStatus, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateUserRoleDto } from './dto/update-user-role.dto';
 import { CreateUserDto } from './dto/create-user.dto';
+import { CreateStoreDto } from './dto/create-store.dto';
 import { NotificationsService } from '../notifications/notifications.service';
 import { CommunicationsService } from '../communications/communications.service';
 import { WalletsService } from '../wallets/wallets.service';
@@ -115,7 +116,7 @@ export class AdminService {
     }
 
     // ─── LIST PARTNER REQUESTS ────────────────────────────────────────────────
-    async listRequests(type: 'restaurant' | 'delivery', status?: RequestStatus, page = 1, limit = 20) {
+    async listRequests(type: 'restaurant' | 'delivery' | 'store', status?: RequestStatus, page = 1, limit = 20) {
         const skip = (page - 1) * limit;
         const where = status ? { status } : {};
 
@@ -131,6 +132,22 @@ export class AdminService {
                     orderBy: { createdAt: 'desc' },
                 }),
                 this.prisma.restaurantRequest.count({ where })
+            ]);
+            return { data, total, page, limit };
+        }
+
+        if (type === 'store') {
+            const [data, total] = await Promise.all([
+                this.prisma.storeRequest.findMany({
+                    where,
+                    skip,
+                    take: limit,
+                    include: {
+                        user: { select: { id: true, name: true, email: true, phoneNumber: true } },
+                    },
+                    orderBy: { createdAt: 'desc' },
+                }),
+                this.prisma.storeRequest.count({ where })
             ]);
             return { data, total, page, limit };
         }
@@ -257,6 +274,109 @@ export class AdminService {
         );
 
         return { message: 'Restaurant request rejected.', request: updated };
+    }
+
+    // ─── APPROVE STORE REQUEST ────────────────────────────────────────────────
+    async approveStoreRequest(requestId: string) {
+        const request = await this.prisma.storeRequest.findUnique({
+            where: { id: requestId },
+        });
+
+        if (!request) throw new NotFoundException(`Store request "${requestId}" not found.`);
+        if (request.status !== 'PENDING') {
+            throw new BadRequestException(`This request is already ${request.status}.`);
+        }
+
+        const existingStore = await this.prisma.store.findUnique({
+            where: { managerId: request.userId }
+        });
+
+        if (existingStore) {
+            throw new BadRequestException(`This user already manages a grocery store ("${existingStore.name}").`);
+        }
+
+        // ⚡ Atomic transaction: update request + update user role + create Store
+        const [updatedRequest, store] = await this.prisma.$transaction([
+            // 1. Mark request as approved
+            this.prisma.storeRequest.update({
+                where: { id: requestId },
+                data: { status: RequestStatus.APPROVED },
+            }),
+            // 2. Update user role to STORE_MANAGER
+            this.prisma.user.update({
+                where: { id: request.userId },
+                data: { role: Role.STORE_MANAGER },
+            }),
+            // 3. Create the actual Store record
+            this.prisma.store.create({
+                data: {
+                    managerId: request.userId,
+                    name: request.storeName,
+                    description: request.description,
+                    address: request.address,
+                    lat: request.lat,
+                    lng: request.lng,
+                    logo: request.logoUrl,
+                    banner: request.bannerUrl,
+                    isVerified: true,
+                    isActive: true,
+                    isOpen: true,
+                },
+            }),
+        ]);
+
+        await this.notifications.send(
+            request.userId,
+            'Grocery Store Application Approved',
+            `Congratulations! Your application for ${request.storeName} has been approved.`,
+            'PARTNER_REQUEST_APPROVED'
+        );
+
+        // 📧 Send Partner Approval Email
+        const storeUser = await this.prisma.user.findUnique({ where: { id: request.userId } });
+        if (storeUser?.email) {
+            this.communications.queueEmail({
+                to: storeUser.email,
+                subject: `Your Grocery Store "${request.storeName}" is Approved! 🎉`,
+                template: 'onboarding_approved',
+                event: 'PARTNER_APPROVED',
+                userId: request.userId,
+                templateData: {
+                    partnerName: storeUser.name,
+                    partnerType: 'store',
+                    loginUrl: `${process.env.RESTAURANT_APP_ORIGIN}/login`,
+                },
+            }).catch(e => this.logger.error(`Failed to queue store approval email: ${e}`));
+        }
+
+        return {
+            message: 'Grocery store request approved. Store profile created and user promoted to STORE_MANAGER.',
+            request: updatedRequest,
+            store,
+        };
+    }
+
+    // ─── REJECT STORE REQUEST ─────────────────────────────────────────────────
+    async rejectStoreRequest(requestId: string, reason?: string) {
+        const request = await this.prisma.storeRequest.findUnique({ where: { id: requestId } });
+        if (!request) throw new NotFoundException(`Store request "${requestId}" not found.`);
+        if (request.status !== 'PENDING') {
+            throw new BadRequestException(`This request is already ${request.status}.`);
+        }
+
+        const updated = await this.prisma.storeRequest.update({
+            where: { id: requestId },
+            data: { status: RequestStatus.REJECTED, rejectionReason: reason },
+        });
+
+        await this.notifications.send(
+            request.userId,
+            'Grocery Store Application Rejected',
+            `Unfortunately, your application for ${request.storeName} was rejected. ${reason ? 'Reason: ' + reason : ''}`,
+            'PARTNER_REQUEST_REJECTED'
+        );
+
+        return { message: 'Grocery store request rejected.', request: updated };
     }
 
     // ─── APPROVE DELIVERY PARTNER REQUEST ────────────────────────────────────
@@ -584,5 +704,83 @@ export class AdminService {
         ]);
 
         return { data, total, page, limit };
+    }
+
+    // ─── ADMIN: CREATE STORE MANUALLY ─────────────────────────────────────────
+    async createStore(dto: CreateStoreDto) {
+        // 1. Verify that the manager user exists
+        const user = await this.prisma.user.findUnique({
+            where: { id: dto.managerId },
+        });
+        if (!user) {
+            throw new NotFoundException(`User with ID "${dto.managerId}" not found.`);
+        }
+
+        // 2. Verify that this user is not already managing a store or restaurant
+        const [existingStore, existingRestaurant] = await Promise.all([
+            this.prisma.store.findUnique({ where: { managerId: dto.managerId } }),
+            this.prisma.restaurant.findUnique({ where: { managerId: dto.managerId } }),
+        ]);
+
+        if (existingStore) {
+            throw new BadRequestException(`This user already manages a grocery store ("${existingStore.name}").`);
+        }
+        if (existingRestaurant) {
+            throw new BadRequestException(`This user already manages a restaurant ("${existingRestaurant.name}").`);
+        }
+
+        // 3. Atomically update user role to STORE_MANAGER and create the Store record
+        const store = await this.prisma.$transaction(async (tx) => {
+            // Update role
+            await tx.user.update({
+                where: { id: dto.managerId },
+                data: { role: Role.STORE_MANAGER },
+            });
+
+            // Create Store
+            return tx.store.create({
+                data: {
+                    name: dto.name,
+                    description: dto.description,
+                    logo: dto.logoUrl,
+                    banner: dto.bannerUrl,
+                    address: dto.address,
+                    lat: dto.lat,
+                    lng: dto.lng,
+                    managerId: dto.managerId,
+                    isVerified: true,
+                    isActive: true,
+                    isOpen: true,
+                },
+            });
+        });
+
+        // 4. Send notification & email to manager
+        await this.notifications.send(
+            dto.managerId,
+            'Grocery Store Created',
+            `A grocery store "${dto.name}" has been created for you by the Administrator.`,
+            'STORE_CREATED'
+        );
+
+        if (user.email) {
+            this.communications.queueEmail({
+                to: user.email,
+                subject: `Your Grocery Store "${dto.name}" has been created! 🎉`,
+                template: 'onboarding_approved',
+                event: 'PARTNER_APPROVED',
+                userId: dto.managerId,
+                templateData: {
+                    partnerName: user.name,
+                    partnerType: 'store',
+                    loginUrl: `${process.env.RESTAURANT_APP_ORIGIN}/login`,
+                },
+            }).catch(e => this.logger.error(`Failed to queue store creation email: ${e}`));
+        }
+
+        return {
+            message: 'Grocery store created successfully.',
+            store,
+        };
     }
 }

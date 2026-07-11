@@ -129,6 +129,9 @@ export class DeliveryService {
         restaurant: {
           select: { name: true, address: true, lat: true, lng: true }
         },
+        store: {
+          select: { name: true, address: true, lat: true, lng: true }
+        },
         customer: {
           select: { name: true, phoneNumber: true }
         },
@@ -143,11 +146,15 @@ export class DeliveryService {
     const MAX_DISTANCE_KM = 15;
 
     return availableOrders.map(order => {
+      // Resolve merchant (restaurant or dark store) for pickup coordinates
+      const merchant = order.restaurant ?? order.store;
+      if (!merchant) return null;
+
       const distance = this.calculateDistance(
         currentLat,
         currentLng,
-        order.restaurant.lat,
-        order.restaurant.lng
+        merchant.lat,
+        merchant.lng
       );
 
       return {
@@ -155,7 +162,7 @@ export class DeliveryService {
         distanceToRestaurantKm: parseFloat(distance.toFixed(2)),
         itemCount: order._count.items
       };
-    }).filter(order => order.distanceToRestaurantKm <= MAX_DISTANCE_KM);
+    }).filter((order): order is NonNullable<typeof order> => order !== null && order.distanceToRestaurantKm <= MAX_DISTANCE_KM);
   }
 
   async acceptOrder(userId: string, orderId: string) {
@@ -167,7 +174,7 @@ export class DeliveryService {
 
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { restaurant: true },
+      include: { restaurant: true, store: true },
     });
     if (!order) throw new NotFoundException('Order not found.');
     if (order.status === 'CANCELLED') {
@@ -181,6 +188,9 @@ export class DeliveryService {
     if (profile.status === DriverStatus.BUSY) {
       throw new ConflictException('You are already on another delivery. Finish it first!');
     }
+
+    // Resolve merchant name (restaurant or dark store)
+    const merchantName = order.restaurant?.name ?? order.store?.name ?? 'the merchant';
 
     // Atomic assignment
     const updatedOrder = await this.prisma.order.update({
@@ -216,7 +226,7 @@ export class DeliveryService {
     this.notificationsService.send(
       order.customerId,
       'Driver Assigned! 🛵',
-      `${profile.user.name} is picking up your order from ${order.restaurant.name}.`,
+      `${profile.user.name} is picking up your order from ${merchantName}.`,
       'ORDER_UPDATE',
       { orderId, status: order.status }
     ).catch(e => this.logger.error('Failed to send driver assigned push', e));
@@ -273,6 +283,7 @@ export class DeliveryService {
       where: { id: orderId },
       include: {
         restaurant: true,
+        store: true,
         items: {
           include: { menuItem: true, variant: true, selectedAddons: true }
         }
@@ -344,22 +355,24 @@ export class DeliveryService {
       );
     }
 
-    // ─── RESTAURANT PAYOUT ────────────────────────────────────────────────
-    // All payment modes: credit restaurant manager itemTotal + tax - commission
+    // ─── MERCHANT PAYOUT ──────────────────────────────────────────────────
+    // All payment modes: credit merchant manager itemTotal + tax - commission
     // For COD: happening now because cash was just collected
-    // For WALLET/online: customer already paid — restaurant gets their share at delivery
-    const restaurantPayout = order.itemTotal + order.tax - order.commission;
-    if (restaurantPayout > 0) {
+    // For WALLET/online: customer already paid — merchant gets their share at delivery
+    const merchantManagerId = order.restaurant?.managerId ?? order.store?.managerId;
+    const merchantName = order.restaurant?.name ?? order.store?.name ?? 'merchant';
+    const merchantPayout = order.itemTotal + order.tax - order.commission;
+    if (merchantPayout > 0 && merchantManagerId) {
       const payoutType = isCOD
-        ? `COD_RESTAURANT_PAYOUT:${order.id}`
-        : `RESTAURANT_PAYOUT:${order.id}`;
+        ? `COD_MERCHANT_PAYOUT:${order.id}`
+        : `MERCHANT_PAYOUT:${order.id}`;
 
       await this.walletsService.addFunds(
-        order.restaurant.managerId,
-        restaurantPayout,
+        merchantManagerId,
+        merchantPayout,
         payoutType,
-        `Restaurant payout of ₹${restaurantPayout} for order #${order.id.slice(-6)}`,
-      ).catch(e => this.logger.error(`Failed restaurant payout for order ${order.id}:`, e));
+        `Payout of ₹${merchantPayout} for order #${order.id.slice(-6)}`,
+      ).catch(e => this.logger.error(`Failed merchant payout for order ${order.id}:`, e));
     }
 
     // ─── COD SETTLEMENT ───────────────────────────────────────────────────
@@ -422,7 +435,7 @@ export class DeliveryService {
         templateData: {
           userName: deliveredCustomer.name,
           orderId: orderId,
-          restaurantName: order.restaurant.name,
+          restaurantName: order.restaurant?.name ?? order.store?.name ?? 'merchant',
           totalAmount: order.totalAmount,
           reviewUrl: `${process.env.CUSTOMER_APP_SCHEME}://(tabs)/orders/${orderId}?openReview=true`,
           // Bill Details
@@ -512,21 +525,28 @@ export class DeliveryService {
 
     this.eventsGateway.emitOrderStatusChange(orderId, 'READY');
 
-    // 🚀 NEW: Notify Restaurant Manager
-    const restaurant = await this.prisma.restaurant.findUnique({
-      where: { id: order.restaurantId }
-    });
-    if (restaurant) {
-      this.notificationsService.send(
-        restaurant.managerId,
-        'Rider Released Order ⚠️',
-        `The rider assigned to order #${orderId.slice(-6)} is no longer available. We are assigning a new one now.`,
-        'ORDER_UPDATE',
-        { orderId, status: 'READY' }
-      ).catch(e => this.logger.error('Failed to notify restaurant of rider release', e));
+    // 🚀 NEW: Notify Merchant Manager (Restaurant or Store)
+    const merchantId = order.restaurantId ?? order.storeId;
+    if (merchantId) {
+      const merchant = order.restaurantId
+        ? await this.prisma.restaurant.findUnique({ where: { id: order.restaurantId } })
+        : order.storeId
+          ? await this.prisma.store.findUnique({ where: { id: order.storeId } })
+          : null;
 
-      // Update restaurant live dashboard
-      this.eventsGateway.server.to(`restaurant_${restaurant.id}`).emit('rider_released', { orderId });
+      if (merchant) {
+        this.notificationsService.send(
+          merchant.managerId,
+          'Rider Released Order ⚠️',
+          `The rider assigned to order #${orderId.slice(-6)} is no longer available. We are assigning a new one now.`,
+          'ORDER_UPDATE',
+          { orderId, status: 'READY' }
+        ).catch(e => this.logger.error('Failed to notify merchant of rider release', e));
+
+        // Update merchant live dashboard
+        const roomPrefix = order.restaurantId ? 'restaurant' : 'store';
+        this.eventsGateway.server.to(`${roomPrefix}_${merchantId}`).emit('rider_released', { orderId });
+      }
     }
 
     // 🚀 NEW: Notify Customer
@@ -658,6 +678,9 @@ export class DeliveryService {
         restaurant: {
           select: { name: true, address: true, lat: true, lng: true },
         },
+        store: {
+          select: { name: true, address: true, lat: true, lng: true },
+        },
         customer: {
           select: { name: true, phoneNumber: true },
         },
@@ -668,6 +691,12 @@ export class DeliveryService {
     // Allow if driver is assigned OR if the order is still READY (so driver can view preview route before accepting)
     if (order.driverId && order.driverId !== profile.id) {
       throw new ForbiddenException('You are not assigned to this order.');
+    }
+
+    // Resolve merchant (restaurant or dark store) for pickup coordinates
+    const merchant = order.restaurant ?? order.store;
+    if (!merchant) {
+      throw new NotFoundException('Merchant details not found for this order.');
     }
 
     // Determine dropoff location from customer's default address or fallback to first saved address
@@ -684,10 +713,10 @@ export class DeliveryService {
       orderId: order.id,
       status: order.status,
       pickup: {
-        name: order.restaurant.name,
-        address: order.restaurant.address,
-        lat: order.restaurant.lat,
-        lng: order.restaurant.lng,
+        name: merchant.name,
+        address: merchant.address,
+        lat: merchant.lat,
+        lng: merchant.lng,
       },
       dropoff: {
         name: order.customer.name,
@@ -699,8 +728,8 @@ export class DeliveryService {
       },
       // Calculate a rough straight-line distance in km using Haversine
       distanceKm: this.calculateDistance(
-        order.restaurant.lat,
-        order.restaurant.lng,
+        merchant.lat,
+        merchant.lng,
         customerAddress.lat,
         customerAddress.lng
       ).toFixed(2),

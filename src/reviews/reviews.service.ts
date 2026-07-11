@@ -43,24 +43,26 @@ export class ReviewsService {
         data: {
           orderId: order.id,
           userId: userId,
-          restaurantId: order.restaurantId,
+          restaurantId: order.restaurantId!,
           foodRating: dto.foodRating,
           deliveryRating: dto.deliveryRating,
           comment: dto.comment,
         },
       });
 
-      // Recalculate Restaurant Rating
-      const newRestCount = order.restaurant.ratingCount + 1;
-      const newRestRating = ((order.restaurant.rating * order.restaurant.ratingCount) + dto.foodRating) / newRestCount;
+      // Recalculate Restaurant Rating (only for food orders)
+      if (order.restaurant) {
+        const newRestCount = order.restaurant.ratingCount + 1;
+        const newRestRating = ((order.restaurant.rating * order.restaurant.ratingCount) + dto.foodRating) / newRestCount;
 
-      await tx.restaurant.update({
-        where: { id: order.restaurantId },
-        data: {
-          rating: newRestRating,
-          ratingCount: newRestCount,
-        },
-      });
+        await tx.restaurant.update({
+          where: { id: order.restaurantId! },
+          data: {
+            rating: newRestRating,
+            ratingCount: newRestCount,
+          },
+        });
+      }
 
       // Recalculate Driver Rating if a driver exists
       if (order.driver) {

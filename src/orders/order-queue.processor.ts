@@ -41,7 +41,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
                     // Safety: Never cancel orders that have an assigned driver actively working
                     driverId: null,
                 },
-                include: { restaurant: true },
+                include: { restaurant: true, store: true, items: true },
             });
 
             if (staleOrders.length === 0) return;
@@ -51,6 +51,26 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
             for (const order of staleOrders) {
                 try {
                     const reason = 'SYSTEM_TIMEOUT: Restaurant did not respond in time (recovered on startup).';
+
+                    if (order.type === 'GROCERY' && order.storeId) {
+                        await this.prisma.$transaction(async (tx) => {
+                            for (const item of order.items) {
+                                if (item.productId) {
+                                    await tx.storeInventory.update({
+                                        where: {
+                                            storeId_productId: {
+                                                storeId: order.storeId!,
+                                                productId: item.productId,
+                                            },
+                                        },
+                                        data: {
+                                            stock: { increment: item.quantity },
+                                        },
+                                    });
+                                }
+                            }
+                        });
+                    }
 
                     await this.prisma.order.update({
                         where: { id: order.id },
@@ -115,6 +135,32 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
             // Only cancel if it's still PLACED and NOT Paid.
             // (If the customer paid, isPaid will be true. If they cancelled manually, status will be CANCELLED)
             if (order.status === 'PLACED' && !order.isPaid && order.paymentMode !== 'COD') {
+                if (order.type === 'GROCERY' && order.storeId) {
+                    const orderWithItems = await this.prisma.order.findUnique({
+                        where: { id: orderId },
+                        include: { items: true },
+                    });
+                    if (orderWithItems) {
+                        await this.prisma.$transaction(async (tx) => {
+                            for (const item of orderWithItems.items) {
+                                if (item.productId) {
+                                    await tx.storeInventory.update({
+                                        where: {
+                                            storeId_productId: {
+                                                storeId: order.storeId!,
+                                                productId: item.productId,
+                                            },
+                                        },
+                                        data: {
+                                            stock: { increment: item.quantity },
+                                        },
+                                    });
+                                }
+                            }
+                        });
+                    }
+                }
+
                 await this.prisma.order.update({
                     where: { id: orderId },
                     data: {
@@ -148,7 +194,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
         // ── Guard: Check if the order is still dispatchable ──────────────────
         const order = await this.prisma.order.findUnique({
             where: { id: orderId },
-            include: { restaurant: true }
+            include: { restaurant: true, store: true }
         });
 
         if (!order || order.status !== 'READY' || order.driverId !== null) {
@@ -172,8 +218,15 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
         }
 
         // ── Step 1: Use Redis GEOSEARCH to find nearest drivers ──────────────
-        const restaurantLng = order.restaurant.lng;
-        const restaurantLat = order.restaurant.lat;
+        // Resolve merchant (restaurant or dark store) for pickup coordinates
+        const merchant = order.restaurant ?? order.store;
+        if (!merchant) {
+            this.logger.error(`Order ${orderId} has no associated merchant. Skipping dispatch.`);
+            return;
+        }
+        const merchantLng = merchant.lng;
+        const merchantLat = merchant.lat;
+        const merchantName = merchant.name;
 
         let nearbyDriverIds: string[];
         try {
@@ -181,7 +234,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
             // We fetch up to 10 candidates to filter out ignored drivers
             nearbyDriverIds = await this.redis.geosearch(
                 'driver_locations',
-                'FROMLONLAT', restaurantLng, restaurantLat,
+                'FROMLONLAT', merchantLng, merchantLat,
                 'BYRADIUS', MAX_RADIUS_KM, 'km',
                 'ASC',
                 'COUNT', 10,
@@ -228,7 +281,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
         if (geoPos && geoPos[0]) {
             const [driverLng, driverLat] = geoPos[0];
             distanceKm = this.haversine(
-                restaurantLat, restaurantLng,
+                merchantLat, merchantLng,
                 parseFloat(driverLat), parseFloat(driverLng),
             );
         }
@@ -267,7 +320,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
         this.logger.log(`[DISPATCH DEBUG]   Driver DB ID:  ${driverProfile.id}`);
         this.logger.log(`[DISPATCH DEBUG]   Distance:      ${distanceKm.toFixed(2)} km`);
         this.logger.log(`[DISPATCH DEBUG]   Earning:       ₹${earning} (delivery: ₹${order.deliveryCharge}, tip: ₹${order.driverTip})`);
-        this.logger.log(`[DISPATCH DEBUG]   Restaurant:    ${order.restaurant.name}`);
+        this.logger.log(`[DISPATCH DEBUG]   Merchant:      ${merchantName}`);
         this.logger.log(`[DISPATCH DEBUG]   Attempt:       ${attemptCount + 1}/${MAX_DISPATCH_ATTEMPTS}`);
         this.logger.log(`[DISPATCH DEBUG]   Offer Expires: ${new Date(offerExpiresAt).toISOString()}`);
         this.logger.log(`[DISPATCH DEBUG] ════════════════════════════════════════`);
@@ -276,7 +329,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
         this.logger.log(`[DISPATCH DEBUG] 📡 Sending WebSocket 'order_offered' to room user_${closestDriverId}`);
         this.eventsGateway.emitOrderOffered(closestDriverId, {
             orderId: order.id,
-            restaurantName: order.restaurant.name,
+            restaurantName: merchantName,
             distanceKm: distanceKm.toFixed(2),
             earning: earning,
             expiresInSeconds: 45,
@@ -288,11 +341,11 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
         this.notificationsService.send(
             closestDriverId,
             'New Delivery Available! 🛵',
-            `${order.restaurant.name} - Earn ₹${earning}. Tap to accept within 45s.`,
+            `${merchantName} - Earn ₹${earning}. Tap to accept within 45s.`,
             'ORDER_OFFER',
             {
                 orderId: order.id,
-                restaurantName: order.restaurant.name,
+                restaurantName: merchantName,
                 distanceKm: Number(distanceKm.toFixed(2)),
                 earning,
                 offerExpiresAt,
@@ -343,7 +396,7 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
 
         const order = await this.prisma.order.findUnique({
             where: { id: orderId },
-            include: { restaurant: true },
+            include: { restaurant: true, store: true, items: true },
         });
 
         if (!order) {
@@ -351,13 +404,33 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
             return;
         }
 
-        // Only cancel if it's STILL in PLACED (restaurant never accepted/refused)
+        // Only cancel if it's STILL in PLACED (restaurant/store never accepted/refused)
         if (order.status !== 'PLACED') {
             this.logger.debug(`Stale-check: Order ${orderId} is now ${order.status}, no action needed.`);
             return;
         }
 
-        const reason = 'SYSTEM_TIMEOUT: Restaurant did not respond within 10 minutes.';
+        const reason = 'SYSTEM_TIMEOUT: Merchant did not respond within 10 minutes.';
+
+        if (order.type === 'GROCERY' && order.storeId) {
+            await this.prisma.$transaction(async (tx) => {
+                for (const item of order.items) {
+                    if (item.productId) {
+                        await tx.storeInventory.update({
+                            where: {
+                                storeId_productId: {
+                                    storeId: order.storeId!,
+                                    productId: item.productId,
+                                },
+                            },
+                            data: {
+                                stock: { increment: item.quantity },
+                            },
+                        });
+                    }
+                }
+            });
+        }
 
         await this.prisma.order.update({
             where: { id: orderId },
@@ -393,20 +466,23 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
         this.notificationsService.send(
             order.customerId,
             'Order Cancelled ❌',
-            'The restaurant didn\'t respond to your order in time. Any payment has been refunded to your wallet.',
+            'The merchant didn\'t respond to your order in time. Any payment has been refunded to your wallet.',
             'ORDER_UPDATE',
             { orderId: order.id, status: 'CANCELLED' },
         ).catch(e => this.logger.error('Failed to send stale-order cancellation notification', e));
 
-        this.notificationsService.send(
-            order.restaurant.managerId,
-            'Missed Order ⚠️',
-            `Order #${order.id.slice(-6)} was auto-cancelled because it wasn't accepted within 10 minutes.`,
-            'ORDER_UPDATE',
-            { orderId: order.id, status: 'CANCELLED' },
-        ).catch(e => this.logger.error('Failed to send restaurant missed-order notification', e));
+        const merchantManagerId = order.restaurant?.managerId ?? order.store?.managerId;
+        if (merchantManagerId) {
+            this.notificationsService.send(
+                merchantManagerId,
+                'Missed Order ⚠️',
+                `Order #${order.id.slice(-6)} was auto-cancelled because it wasn't accepted within 10 minutes.`,
+                'ORDER_UPDATE',
+                { orderId: order.id, status: 'CANCELLED' },
+            ).catch(e => this.logger.error('Failed to send merchant missed-order notification', e));
+        }
 
-        this.logger.log(`Order ${orderId} auto-cancelled: restaurant did not respond within 10 minutes.`);
+        this.logger.log(`Order ${orderId} auto-cancelled: merchant did not respond within 10 minutes.`);
     }
 
     // ── Helper: Schedule a retry with incremented attempt count ───────────
@@ -421,6 +497,32 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
     // ── Helper: Auto-cancel an order that couldn't find a driver ──────────
     private async autoCancelOrder(order: any) {
         const reason = `SYSTEM_TIMEOUT: No delivery partner found within ${MAX_DISPATCH_ATTEMPTS} minutes.`;
+
+        if (order.type === 'GROCERY') {
+            const orderWithItems = await this.prisma.order.findUnique({
+                where: { id: order.id },
+                include: { items: true },
+            });
+            if (orderWithItems && orderWithItems.storeId) {
+                await this.prisma.$transaction(async (tx) => {
+                    for (const item of orderWithItems.items) {
+                        if (item.productId) {
+                            await tx.storeInventory.update({
+                                where: {
+                                    storeId_productId: {
+                                        storeId: orderWithItems.storeId!,
+                                        productId: item.productId,
+                                    },
+                                },
+                                data: {
+                                    stock: { increment: item.quantity },
+                                },
+                            });
+                        }
+                    }
+                });
+            }
+        }
 
         await this.prisma.order.update({
             where: { id: order.id },
@@ -463,14 +565,17 @@ export class OrderQueueProcessor extends WorkerHost implements OnModuleInit {
             { orderId: order.id, status: 'CANCELLED' },
         ).catch(e => this.logger.error('Failed to send auto-cancel push notification', e));
 
-        // Push notification to restaurant manager
-        this.notificationsService.send(
-            order.restaurant.managerId,
-            'Order Auto-Cancelled ⚠️',
-            `Order #${order.id.slice(-6)} was cancelled because no delivery partner was available.`,
-            'ORDER_UPDATE',
-            { orderId: order.id, status: 'CANCELLED' },
-        ).catch(e => this.logger.error('Failed to send restaurant auto-cancel notification', e));
+        // Push notification to merchant manager
+        const merchantManagerId = order.restaurant?.managerId ?? order.store?.managerId;
+        if (merchantManagerId) {
+            this.notificationsService.send(
+                merchantManagerId,
+                'Order Auto-Cancelled ⚠️',
+                `Order #${order.id.slice(-6)} was cancelled because no delivery partner was available.`,
+                'ORDER_UPDATE',
+                { orderId: order.id, status: 'CANCELLED' },
+            ).catch(e => this.logger.error('Failed to send merchant auto-cancel notification', e));
+        }
 
         this.logger.log(`Order ${order.id} auto-cancelled after ${MAX_DISPATCH_ATTEMPTS} failed dispatch attempts.`);
     }

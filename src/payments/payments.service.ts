@@ -160,26 +160,34 @@ export class PaymentsService {
                 where: { id: orderId },
                 include: {
                     restaurant: true,
+                    store: true,
                     items: true,
                 },
             });
 
             if (orderWithRestaurant) {
-                this.notificationsService.send(
-                    orderWithRestaurant.restaurant.managerId,
-                    '🔔 New Order!',
-                    `A new order of ₹${orderWithRestaurant.totalAmount} has been placed.`,
-                    'ORDER_UPDATE',
-                    { orderId: orderWithRestaurant.id },
-                ).catch(e => this.logger.error(`Failed to send push notification to restaurant for order ${orderWithRestaurant.id}`, e));
+                const merchantManagerId = orderWithRestaurant.restaurant?.managerId ?? orderWithRestaurant.store?.managerId;
+                const merchantEntityId = orderWithRestaurant.restaurantId ?? orderWithRestaurant.storeId;
 
-                this.eventsGateway.emitNewOrderToRestaurant(orderWithRestaurant.restaurant.id, {
-                    orderId: orderWithRestaurant.id,
-                    totalAmount: orderWithRestaurant.totalAmount,
-                    itemCount: orderWithRestaurant.items.length,
-                    paymentMode: orderWithRestaurant.paymentMode,
-                    timestamp: new Date().toISOString(),
-                });
+                if (merchantManagerId) {
+                    this.notificationsService.send(
+                        merchantManagerId,
+                        '🔔 New Order!',
+                        `A new order of ₹${orderWithRestaurant.totalAmount} has been placed.`,
+                        'ORDER_UPDATE',
+                        { orderId: orderWithRestaurant.id },
+                    ).catch(e => this.logger.error(`Failed to send push notification to merchant for order ${orderWithRestaurant.id}`, e));
+                }
+
+                if (merchantEntityId && orderWithRestaurant.restaurantId) {
+                    this.eventsGateway.emitNewOrderToRestaurant(merchantEntityId, {
+                        orderId: orderWithRestaurant.id,
+                        totalAmount: orderWithRestaurant.totalAmount,
+                        itemCount: orderWithRestaurant.items.length,
+                        paymentMode: orderWithRestaurant.paymentMode,
+                        timestamp: new Date().toISOString(),
+                    });
+                }
             }
         } catch (error) {
             this.logger.error(`Error notifying restaurant manager after payment verification:`, error);
@@ -239,26 +247,34 @@ export class PaymentsService {
                         where: { id: orderIdToNotify },
                         include: {
                             restaurant: true,
+                            store: true,
                             items: true,
                         },
                     });
 
                     if (orderWithRestaurant) {
-                        this.notificationsService.send(
-                            orderWithRestaurant.restaurant.managerId,
-                            '🔔 New Order!',
-                            `A new order of ₹${orderWithRestaurant.totalAmount} has been placed.`,
-                            'ORDER_UPDATE',
-                            { orderId: orderWithRestaurant.id },
-                        ).catch(e => this.logger.error(`Failed to send push notification to restaurant via webhook for order ${orderWithRestaurant.id}`, e));
+                        const merchantManagerId = orderWithRestaurant.restaurant?.managerId ?? orderWithRestaurant.store?.managerId;
+                        const merchantEntityId = orderWithRestaurant.restaurantId ?? orderWithRestaurant.storeId;
 
-                        this.eventsGateway.emitNewOrderToRestaurant(orderWithRestaurant.restaurant.id, {
-                            orderId: orderWithRestaurant.id,
-                            totalAmount: orderWithRestaurant.totalAmount,
-                            itemCount: orderWithRestaurant.items.length,
-                            paymentMode: orderWithRestaurant.paymentMode,
-                            timestamp: new Date().toISOString(),
-                        });
+                        if (merchantManagerId) {
+                            this.notificationsService.send(
+                                merchantManagerId,
+                                '🔔 New Order!',
+                                `A new order of ₹${orderWithRestaurant.totalAmount} has been placed.`,
+                                'ORDER_UPDATE',
+                                { orderId: orderWithRestaurant.id },
+                            ).catch(e => this.logger.error(`Failed to send push notification to merchant via webhook for order ${orderWithRestaurant.id}`, e));
+                        }
+
+                        if (merchantEntityId && orderWithRestaurant.restaurantId) {
+                            this.eventsGateway.emitNewOrderToRestaurant(merchantEntityId, {
+                                orderId: orderWithRestaurant.id,
+                                totalAmount: orderWithRestaurant.totalAmount,
+                                itemCount: orderWithRestaurant.items.length,
+                                paymentMode: orderWithRestaurant.paymentMode,
+                                timestamp: new Date().toISOString(),
+                            });
+                        }
                     }
                 } catch (error) {
                     this.logger.error(`Error in webhook notifying restaurant manager for order ${orderIdToNotify}:`, error);

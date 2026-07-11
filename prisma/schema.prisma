@@ -48,6 +48,8 @@ model User {
   // Role Specific Profiles
   restaurant    Restaurant? // Relation if user is a Manager
   driverProfile DriverProfile? // Relation if user is a Rider
+  store         Store? // Relation if user is a Store Manager
+  pickerProfile StorePicker? // Relation if user is a warehouse picker
 
   //  Referral System Fields
   referralCode String  @unique // The code this user shares with others
@@ -58,6 +60,7 @@ model User {
   // Partner Onboarding Relations
   restaurantRequest      RestaurantRequest?
   deliveryPartnerRequest DeliveryPartnerRequest?
+  storeRequest           StoreRequest?
 
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
@@ -310,17 +313,26 @@ model DriverProfile {
 // ==========================================
 
 model Order {
-  id String @id @default(cuid())
+  id   String    @id @default(cuid())
+  type OrderType @default(FOOD) // 🚀 Distinguishes food vs grocery orders
 
   // Participants
   customerId String
   customer   User   @relation("CustomerOrders", fields: [customerId], references: [id])
 
-  restaurantId String
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  // Merchant (one of these will be populated based on OrderType)
+  restaurantId String?
+  restaurant   Restaurant? @relation(fields: [restaurantId], references: [id])
+
+  storeId String?
+  store   Store?  @relation("StoreOrders", fields: [storeId], references: [id])
 
   driverId String?
   driver   DriverProfile? @relation(fields: [driverId], references: [id])
+
+  // Warehouse picker assigned to this grocery order
+  pickerId String?
+  picker   StorePicker? @relation(fields: [pickerId], references: [id])
 
   // Address Snapshot (Frozen at time of order)
   addressId             String?
@@ -345,7 +357,7 @@ model Order {
   driverTip      Float   @default(0)
   discount       Float   @default(0) // Coupon discount applied
   promoCode      String? // Applied coupon code
-  commission     Float   @default(0) // Platform cut from restaurant
+  commission     Float   @default(0) // Platform cut from merchant
   totalAmount    Float // Final Amount to Pay
 
   paymentMode PaymentMethod
@@ -365,9 +377,12 @@ model Order {
 
   @@index([customerId])
   @@index([restaurantId])
+  @@index([storeId])
   @@index([driverId])
+  @@index([pickerId])
   @@index([addressId])
   @@index([status])
+  @@index([type])
   @@index([placedAt])
 }
 
@@ -401,11 +416,16 @@ model OrderItem {
   orderId String
   order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
-  menuItemId String
-  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  // Food order fields (populated for FOOD orders)
+  menuItemId String?
+  menuItem   MenuItem? @relation(fields: [menuItemId], references: [id])
 
   variantId String?
   variant   MenuVariant? @relation(fields: [variantId], references: [id])
+
+  // Grocery order fields (populated for GROCERY orders)
+  productId String?
+  product   Product? @relation(fields: [productId], references: [id])
 
   quantity Int
 
@@ -421,6 +441,7 @@ model OrderItem {
   createdAt DateTime @default(now())
 
   @@index([orderId])
+  @@index([productId])
 }
 
 model OrderItemAddon {
@@ -740,6 +761,8 @@ enum Role {
   RESTAURANT_MANAGER
   DELIVERY_PARTNER
   SUPPORT_AGENT
+  STORE_MANAGER // 🛒 Dark store / grocery partner
+  STORE_PICKER  // 🧑‍🏭 Warehouse picker staff
 }
 
 enum OrderStatus {
@@ -806,6 +829,18 @@ enum CommunicationStatus {
   BOUNCED
 }
 
+enum OrderType {
+  FOOD
+  GROCERY
+}
+
+enum PickerStatus {
+  AVAILABLE  // Ready to pick new orders
+  PICKING    // Currently picking/packing an order
+  ON_BREAK   // Temporarily unavailable
+  OFFLINE    // Shift ended / not working
+}
+
 model Settlement {
   id           String   @id @default(cuid())
   restaurantId String
@@ -823,3 +858,151 @@ model Settlement {
   @@index([status])
 }
 
+// ==========================================
+// 7. INSTAMART — GROCERY CATALOG & INVENTORY
+// ==========================================
+
+// 🏬 Dark Store (Grocery Warehouse Partner)
+model Store {
+  id          String   @id @default(cuid())
+  managerId   String   @unique
+  manager     User     @relation(fields: [managerId], references: [id])
+
+  name        String
+  description String?
+  logo        String?
+  banner      String?
+  address     String
+  lat         Float
+  lng         Float
+
+  isActive    Boolean  @default(true)  // Admin ban/unban
+  isOpen      Boolean  @default(true)  // Manager open/close
+  isVerified  Boolean  @default(false) // Admin approval
+
+  categories  StoreCategory[]
+  inventory   StoreInventory[]
+  orders      Order[]          @relation("StoreOrders")
+  pickers     StorePicker[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive, isVerified, isOpen])
+  @@index([lat, lng])
+}
+
+// 🧑‍🏭 Warehouse Picker (Staff at a Dark Store)
+model StorePicker {
+  id       String @id @default(cuid())
+  storeId  String
+  store    Store  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  userId   String @unique
+  user     User   @relation(fields: [userId], references: [id])
+
+  name     String   // Display name for the picker
+  status   PickerStatus @default(OFFLINE)
+
+  // Stats
+  totalOrdersPicked Int @default(0)
+  activeOrderCount  Int @default(0) // How many orders currently assigned
+
+  // Orders assigned to this picker
+  orders   Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([storeId, userId])
+  @@index([storeId, status])
+}
+
+// 📦 Global Product Catalog
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  brand       String?
+  description String?
+  image       String?
+  barcode     String?  @unique
+  sku         String?  @unique
+  weight      String?  // e.g. "500g", "1L", "6 pcs"
+  unit        String?  // e.g. "kg", "ml", "pcs"
+
+  inventory   StoreInventory[]
+  orderItems  OrderItem[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([name])
+}
+
+// 📊 Store-level Inventory (Stock + Pricing per Store per Product)
+model StoreInventory {
+  id          String   @id @default(cuid())
+  storeId     String
+  store       Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  categoryId  String?
+  category    StoreCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  stock       Int      @default(0)     // ⚡ Strict inventory — decremented atomically on checkout
+  price       Float
+  salePrice   Float?
+  isAvailable Boolean  @default(true)
+
+  @@unique([storeId, productId])
+  @@index([storeId])
+  @@index([categoryId])
+}
+
+// 🗂️ Store Category Hierarchy (Self-referential for infinite nesting)
+model StoreCategory {
+  id               String          @id @default(cuid())
+  name             String
+  image            String?
+  storeId          String
+  store            Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  // Self-referential: enables Beverages → Soft Drinks → Cola
+  parentCategoryId String?
+  parentCategory   StoreCategory?  @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id], onDelete: Cascade)
+  subCategories    StoreCategory[] @relation("CategoryHierarchy")
+
+  inventoryItems   StoreInventory[]
+
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([storeId])
+  @@index([parentCategoryId])
+}
+
+// 📋 Store Partner Onboarding Request
+model StoreRequest {
+  id        String @id @default(cuid())
+  userId    String @unique // One application per user
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Form Data
+  storeName   String
+  description String?
+  address     String
+  lat         Float
+  lng         Float
+  gstNumber   String?
+  logoUrl     String?
+  bannerUrl   String?
+
+  // Admin Review
+  status          RequestStatus @default(PENDING)
+  rejectionReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
