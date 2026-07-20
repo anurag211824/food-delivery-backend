@@ -34,6 +34,7 @@ describe('OrdersService', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
     );
   });
 
