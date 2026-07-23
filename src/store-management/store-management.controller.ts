@@ -12,6 +12,8 @@ import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import type { AuthenticatedRequest } from '../auth/auth.types';
+import { GetStatsDto } from '../restaurants/dto/get-stats.dto';
+import { DashboardQueryDto } from '../restaurants/dto/dashboard-query.dto';
 
 @ApiTags('Store Management (Instamart)')
 @ApiBearerAuth()
@@ -136,6 +138,36 @@ export class StoreManagementController {
     @Query('limit', new ParseIntPipe({ optional: true })) limit = 20,
   ) {
     return this.storeManagementService.getStoreOrders(req.user.id, status, page, limit);
+  }
+
+  @Get('stats')
+  @Roles(Role.STORE_MANAGER, Role.ADMIN)
+  @ApiOperation({
+    summary: '[Store Manager] Get full store analytics stats',
+    description: 'Returns KPIs with trend comparison (% growth vs previous period), revenue graph, top grocery products, and payment breakdown.',
+  })
+  @ApiResponse({ status: 200, description: 'Store analytics data.' })
+  async getStats(
+    @Query() dto: GetStatsDto,
+    @Req() req: AuthenticatedRequest,
+    @Query('storeId') storeId?: string,
+  ) {
+    return this.storeManagementService.getStoreStats(req.user, dto.period, storeId);
+  }
+
+  @Get('dashboard-stats')
+  @Roles(Role.STORE_MANAGER, Role.ADMIN)
+  @ApiOperation({
+    summary: '[Store Manager] Get range-filtered store dashboard metrics',
+    description: 'Fetch total grocery orders, total revenue, active picking orders, and cancellations for custom date range.',
+  })
+  @ApiResponse({ status: 200, description: 'Store dashboard metrics.' })
+  async getDashboardStats(
+    @Query() query: DashboardQueryDto,
+    @Req() req: AuthenticatedRequest,
+    @Query('storeId') storeId?: string,
+  ) {
+    return this.storeManagementService.getStoreDashboardStats(req.user, query.startDate, query.endDate, storeId);
   }
 
   // ═══════════════════════════════════════════════════════════════

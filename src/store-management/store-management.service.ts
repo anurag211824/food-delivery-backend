@@ -1,8 +1,9 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { PickerStatus, Role } from '@prisma/client';
+import { PickerStatus, Role, User } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsGateway } from '../events/events.gateway';
 import { auth } from '../lib/auth';
+import { StatsPeriod } from '../restaurants/dto/get-stats.dto';
 
 @Injectable()
 export class StoreManagementService {
@@ -442,5 +443,204 @@ export class StoreManagementService {
     ]);
 
     return { data: orders, total, page, limit };
+  }
+
+  // ─── STORE MANAGER ANALYTICS & STATS ────────────────────────────────────
+  async getStoreStats(user: Pick<User, 'id' | 'role'>, period: StatsPeriod = StatsPeriod.WEEK, storeId?: string) {
+    let where: any = {};
+    if (user.role === Role.ADMIN && storeId) {
+      where = { id: storeId };
+    } else {
+      where = { managerId: user.id };
+    }
+
+    const store = await this.prisma.store.findUnique({ where });
+    if (!store) throw new NotFoundException('Store profile not found.');
+
+    const { current, previous } = this.getRange(period);
+
+    const [currentMetrics, previousMetrics] = await Promise.all([
+      this.getMetrics(store.id, current.start, current.end),
+      this.getMetrics(store.id, previous.start, previous.end),
+    ]);
+
+    const chartData = await this.getChartData(store.id, current.start, current.end, period);
+    const topProducts = await this.getTopProducts(store.id, current.start, current.end);
+    const paymentBreakdown = await this.getPaymentBreakdown(store.id, current.start, current.end);
+
+    return {
+      kpis: {
+        revenue: {
+          value: Math.round(currentMetrics.revenue * 100) / 100,
+          change: this.calcChange(currentMetrics.revenue, previousMetrics.revenue),
+        },
+        orders: {
+          value: currentMetrics.orders,
+          change: this.calcChange(currentMetrics.orders, previousMetrics.orders),
+        },
+        aov: {
+          value: Math.round(currentMetrics.aov * 100) / 100,
+          change: this.calcChange(currentMetrics.aov, previousMetrics.aov),
+        },
+      },
+      chartData,
+      topProducts,
+      paymentBreakdown,
+    };
+  }
+
+  async getStoreDashboardStats(user: Pick<User, 'id' | 'role'>, startDate?: Date, endDate?: Date, storeId?: string) {
+    let where: any = {};
+    if (user.role === Role.ADMIN && storeId) {
+      where = { id: storeId };
+    } else {
+      where = { managerId: user.id };
+    }
+
+    const store = await this.prisma.store.findUnique({ where });
+    if (!store) throw new NotFoundException('Store profile not found.');
+
+    const start = startDate ? new Date(startDate) : new Date(new Date().setHours(0, 0, 0, 0));
+    const end = endDate ? new Date(endDate) : new Date();
+
+    const [metrics, activeOrdersCount, cancelledOrdersCount] = await Promise.all([
+      this.getMetrics(store.id, start, end),
+      this.prisma.order.count({
+        where: {
+          storeId: store.id,
+          status: { in: ['PLACED', 'ACCEPTED', 'PREPARING', 'READY'] },
+        },
+      }),
+      this.prisma.order.count({
+        where: {
+          storeId: store.id,
+          status: { in: ['CANCELLED', 'REFUSED'] },
+          placedAt: { gte: start, lte: end },
+        },
+      }),
+    ]);
+
+    return {
+      store: { id: store.id, name: store.name, isOpen: store.isOpen },
+      totalOrders: metrics.orders,
+      totalRevenue: Math.round(metrics.revenue * 100) / 100,
+      activeOrders: activeOrdersCount,
+      cancelledOrders: cancelledOrdersCount,
+      aov: Math.round(metrics.aov * 100) / 100,
+    };
+  }
+
+  // ── Stats Helper Methods ──
+  private getRange(period: StatsPeriod) {
+    const now = new Date();
+    let cs: Date, ps: Date, pe: Date;
+
+    if (period === StatsPeriod.TODAY) {
+      cs = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      ps = new Date(cs.getTime() - 86400000);
+      pe = new Date(cs.getTime() - 1);
+    } else if (period === StatsPeriod.WEEK) {
+      cs = new Date(now.getTime() - 7 * 86400000);
+      ps = new Date(cs.getTime() - 7 * 86400000);
+      pe = new Date(cs.getTime() - 1);
+    } else if (period === StatsPeriod.MONTH) {
+      cs = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+      ps = new Date(cs.getFullYear(), cs.getMonth() - 1, cs.getDate());
+      pe = new Date(cs.getTime() - 1);
+    } else {
+      cs = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+      ps = new Date(cs.getFullYear() - 1, cs.getMonth(), cs.getDate());
+      pe = new Date(cs.getTime() - 1);
+    }
+
+    return { current: { start: cs, end: now }, previous: { start: ps, end: pe } };
+  }
+
+  private async getMetrics(storeId: string, start: Date, end: Date) {
+    const stats = await this.prisma.order.aggregate({
+      where: {
+        storeId,
+        status: 'DELIVERED',
+        placedAt: { gte: start, lte: end },
+      },
+      _sum: { itemTotal: true },
+      _count: { id: true },
+    });
+    const revenue = stats._sum.itemTotal || 0;
+    const orders = stats._count.id || 0;
+    return { revenue, orders, aov: orders > 0 ? revenue / orders : 0 };
+  }
+
+  private calcChange(cur: number, prev: number) {
+    if (prev === 0) return cur > 0 ? 100 : 0;
+    return parseFloat(((cur - prev) / prev * 100).toFixed(1));
+  }
+
+  private async getChartData(storeId: string, start: Date, end: Date, period: StatsPeriod) {
+    const orders = await this.prisma.order.findMany({
+      where: {
+        storeId,
+        status: 'DELIVERED',
+        placedAt: { gte: start, lte: end },
+      },
+      select: { placedAt: true, itemTotal: true },
+    });
+
+    const groups: Record<string, number> = {};
+    orders.forEach(o => {
+      const d = new Date(o.placedAt);
+      let key: string;
+      if (period === StatsPeriod.TODAY) key = `${d.getHours()}:00`;
+      else if (period === StatsPeriod.WEEK) key = d.toLocaleDateString('en-US', { weekday: 'short' });
+      else if (period === StatsPeriod.MONTH) key = `Week ${Math.ceil(d.getDate() / 7)}`;
+      else key = d.toLocaleDateString('en-US', { month: 'short' });
+      groups[key] = (groups[key] || 0) + o.itemTotal;
+    });
+
+    return Object.entries(groups).map(([label, value]) => ({
+      label, value: Math.round(value * 100) / 100,
+    }));
+  }
+
+  private async getTopProducts(storeId: string, start: Date, end: Date) {
+    const items = await this.prisma.orderItem.findMany({
+      where: {
+        order: { storeId, status: 'DELIVERED', placedAt: { gte: start, lte: end } },
+      },
+      include: { product: true },
+    });
+
+    const counts: Record<string, { orders: number; revenue: number; name: string }> = {};
+    items.forEach(item => {
+      if (!item.productId || !item.product) return;
+      if (!counts[item.productId]) {
+        counts[item.productId] = { orders: 0, revenue: 0, name: item.product.name };
+      }
+      counts[item.productId].orders += item.quantity;
+      counts[item.productId].revenue += item.totalPrice;
+    });
+
+    return Object.values(counts)
+      .sort((a, b) => b.orders - a.orders)
+      .slice(0, 5)
+      .map(i => ({ ...i, revenue: Math.round(i.revenue * 100) / 100 }));
+  }
+
+  private async getPaymentBreakdown(storeId: string, start: Date, end: Date) {
+    const orders = await this.prisma.order.groupBy({
+      by: ['paymentMode'],
+      where: {
+        storeId,
+        status: 'DELIVERED',
+        placedAt: { gte: start, lte: end },
+      },
+      _count: { id: true },
+    });
+    const total = orders.reduce((s, o) => s + o._count.id, 0);
+    return orders.map(o => ({
+      label: o.paymentMode,
+      count: o._count.id,
+      percentage: total > 0 ? Math.round((o._count.id / total) * 100) : 0,
+    }));
   }
 }
