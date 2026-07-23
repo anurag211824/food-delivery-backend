@@ -649,7 +649,7 @@ export class OrdersService {
       title,
       body,
       'ORDER_UPDATE',
-      { orderId, status }).catch(e => this.logger.error('Failed to send order update push notification', e));
+      { orderId, status, orderType: order.type, storeId: order.storeId, restaurantId: order.restaurantId }).catch(e => this.logger.error('Failed to send order update push notification', e));
 
     if (['DELIVERED', 'CANCELLED', 'REFUSED'].includes(status)) {
       this.eventsGateway.cleanupOrderRoom(orderId);
@@ -824,7 +824,10 @@ export class OrdersService {
         take: limitNumber,
         include: {
           restaurant: {
-            select: { name: true, image: true, id: true }
+            select: { name: true, image: true, id: true, address: true }
+          },
+          store: {
+            select: { name: true, logo: true, id: true, address: true }
           },
           ...ORDER_ITEMS_INCLUDE,
         },
@@ -1027,7 +1030,7 @@ export class OrdersService {
       'Order Cancelled ❌',
       `Your order was cancelled: ${reason}`,
       'ORDER_UPDATE',
-      { orderId: order.id, status: 'CANCELLED' }
+      { orderId: order.id, status: 'CANCELLED', orderType: order.type, storeId: order.storeId, restaurantId: order.restaurantId }
     ).catch(e => this.logger.error('Failed to send order cancelled push notification', e));
 
     this.eventsGateway.cleanupOrderRoom(order.id);
