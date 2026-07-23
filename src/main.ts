@@ -12,7 +12,7 @@ async function bootstrap() {
 
   // 1. CORS Configuration
   app.enableCors({
-    origin: [process.env.CUSTOMER_APP_ORIGIN, process.env.ADMIN_ORIGIN, process.env.RESTAURANT_APP_ORIGIN, process.env.RIDER_APP_ORIGIN, "http://localhost:3000"],
+    origin: [process.env.CUSTOMER_APP_ORIGIN, process.env.ADMIN_ORIGIN, process.env.RESTAURANT_APP_ORIGIN, process.env.RIDER_APP_ORIGIN, "http://localhost:3000",process.env.STORE_APP_ORIGIN],
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization", "Cookie", "x-better-auth-token"],
