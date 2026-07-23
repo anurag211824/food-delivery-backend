@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundEx
 import { PickerStatus, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsGateway } from '../events/events.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 import { auth } from '../lib/auth';
 
 @Injectable()
@@ -11,6 +12,7 @@ export class StoreManagementService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventsGateway: EventsGateway,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ─── ADD A PICKER TO THE STORE ──────────────────────────────────────────
@@ -194,6 +196,15 @@ export class StoreManagementService {
     this.eventsGateway.server
       .to(`user_${availablePicker.userId}`)
       .emit('picker:new-order', { orderId, message: 'New order assigned to you!' });
+
+    // Notify the picker via Expo Push Notification
+    this.notificationsService.send(
+      availablePicker.userId,
+      'New Packing Task 📦',
+      'You have been assigned a new store order to pack!',
+      'PICKER_TASK',
+      { orderId, storeId }
+    ).catch(e => this.logger.error(`Failed to send push notification to picker ${availablePicker.userId}:`, e));
 
     this.logger.log(`Order ${orderId} auto-assigned to picker ${availablePicker.name} (${availablePicker.id})`);
     return availablePicker.id;
