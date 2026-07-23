@@ -34,8 +34,8 @@ export class DeliveryModule implements OnModuleInit {
       {},
       {
         repeat: { every: 10 * 60 * 1000 }, // 10 minutes in ms
-        removeOnComplete: { count: 5 },     // Keep only the last 5 completed jobs
-        removeOnFail: { count: 10 },        // Keep only the last 10 failed jobs
+        removeOnComplete: { count: 5 }, // Keep only the last 5 completed jobs
+        removeOnFail: { count: 10 }, // Keep only the last 10 failed jobs
       },
     );
   }

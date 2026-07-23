@@ -1,4 +1,9 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -12,7 +17,9 @@ export class PayoutsService {
   // Runs every day at midnight (00:00) to calculate settlements for the previous day
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async handleNightlySettlements() {
-    this.logger.log('🚀 Starting nightly restaurant payouts calculation job...');
+    this.logger.log(
+      '🚀 Starting nightly restaurant payouts calculation job...',
+    );
 
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
@@ -24,7 +31,7 @@ export class PayoutsService {
     endOfYesterday.setHours(23, 59, 59, 999);
 
     this.logger.log(
-      `Calculating settlements for period: ${startOfYesterday.toISOString()} to ${endOfYesterday.toISOString()}`
+      `Calculating settlements for period: ${startOfYesterday.toISOString()} to ${endOfYesterday.toISOString()}`,
     );
 
     // 1. Fetch all restaurants
@@ -71,7 +78,9 @@ export class PayoutsService {
         });
 
         if (existingSettlement) {
-          this.logger.warn(`Settlement already exists for restaurant ${restaurant.name} today. Skipping.`);
+          this.logger.warn(
+            `Settlement already exists for restaurant ${restaurant.name} today. Skipping.`,
+          );
           continue;
         }
 
@@ -87,7 +96,9 @@ export class PayoutsService {
         const netPayout = totalRevenue - totalCommission;
 
         if (netPayout <= 0) {
-          this.logger.warn(`Net payout for ${restaurant.name} is ${netPayout}. Skipping settlement creation.`);
+          this.logger.warn(
+            `Net payout for ${restaurant.name} is ${netPayout}. Skipping settlement creation.`,
+          );
           continue;
         }
 
@@ -107,15 +118,20 @@ export class PayoutsService {
         createdCount++;
         this.logger.log(
           `Created PENDING settlement for ${restaurant.name}: Net Payout = ₹${netPayout.toFixed(
-            2
-          )} (Revenue = ₹${totalRevenue.toFixed(2)}, Commission = ₹${totalCommission.toFixed(2)})`
+            2,
+          )} (Revenue = ₹${totalRevenue.toFixed(2)}, Commission = ₹${totalCommission.toFixed(2)})`,
         );
       } catch (error: any) {
-        this.logger.error(`Error calculating settlement for restaurant ${restaurant.name}:`, error.stack);
+        this.logger.error(
+          `Error calculating settlement for restaurant ${restaurant.name}:`,
+          error.stack,
+        );
       }
     }
 
-    this.logger.log(`✅ Nightly payouts calculation job complete. Created ${createdCount} settlements.`);
+    this.logger.log(
+      `✅ Nightly payouts calculation job complete. Created ${createdCount} settlements.`,
+    );
   }
 
   // ─── ADMIN: GET ALL SETTLEMENTS ───────────────────────────────────────
@@ -170,7 +186,9 @@ export class PayoutsService {
     }
 
     if (settlement.status === 'PAID') {
-      throw new BadRequestException('This settlement is already marked as PAID.');
+      throw new BadRequestException(
+        'This settlement is already marked as PAID.',
+      );
     }
 
     // Process: Mark as PAID in db and set settledAt timestamp
@@ -182,7 +200,9 @@ export class PayoutsService {
       },
     });
 
-    this.logger.log(`Settlement ${id} for restaurant ${settlement.restaurant.name} marked as PAID.`);
+    this.logger.log(
+      `Settlement ${id} for restaurant ${settlement.restaurant.name} marked as PAID.`,
+    );
     return {
       message: 'Settlement marked as PAID successfully.',
       settlement: updated,

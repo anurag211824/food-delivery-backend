@@ -77,7 +77,9 @@ export class DiscoveryService {
         id: item.id,
         name: item.name,
         image: item.image,
-        price: defaultVariant ? (defaultVariant.salePrice ?? defaultVariant.price) : 0,
+        price: defaultVariant
+          ? (defaultVariant.salePrice ?? defaultVariant.price)
+          : 0,
         restaurantId: item.category.restaurantId,
       };
     });

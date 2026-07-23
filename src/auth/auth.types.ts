@@ -1,7 +1,7 @@
-import {Request} from "express"
-import {User,Session} from "@prisma/client"
+import { Request } from 'express';
+import { User, Session } from '@prisma/client';
 
 export interface AuthenticatedRequest extends Request {
-    user: User;
-    session:Session;
+  user: User;
+  session: Session;
 }

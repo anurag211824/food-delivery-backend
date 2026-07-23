@@ -1,10 +1,22 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { PaginationDto } from '../common/pagination.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
-import { OrderStatus, PaymentMethod, Role, User, OrderType } from '@prisma/client';
+import {
+  OrderStatus,
+  PaymentMethod,
+  Role,
+  User,
+  OrderType,
+} from '@prisma/client';
 import { WalletsService } from '../wallets/wallets.service';
 import { EventsGateway } from '../events/events.gateway';
 import { CouponsService } from '../coupons/coupons.service';
@@ -36,34 +48,47 @@ export class OrdersService {
     private communicationsService: CommunicationsService,
     private storeManagementService: StoreManagementService,
     @InjectQueue('orders') private orderQueue: Queue,
-  ) { }
+  ) {}
 
   async create(userId: string, dto: CreateOrderDto) {
     const orderType = dto.orderType ?? OrderType.FOOD;
 
     if (orderType === OrderType.GROCERY) {
       if (!dto.storeId) {
-        throw new BadRequestException("storeId is required for grocery orders.");
+        throw new BadRequestException(
+          'storeId is required for grocery orders.',
+        );
       }
       const store = await this.prisma.store.findUnique({
         where: { id: dto.storeId },
       });
 
-      if (!store) throw new NotFoundException("Store not found");
-      if (!store.isOpen) throw new BadRequestException("Store is closed");
-      if (!store.isActive || !store.isVerified) throw new BadRequestException("Store is not active or verified.");
+      if (!store) throw new NotFoundException('Store not found');
+      if (!store.isOpen) throw new BadRequestException('Store is closed');
+      if (!store.isActive || !store.isVerified)
+        throw new BadRequestException('Store is not active or verified.');
 
       const userAddress = dto.addressId
-        ? await this.prisma.address.findUnique({ where: { id: dto.addressId, userId } })
-        : await this.prisma.address.findFirst({ where: { userId, isDefault: true } });
+        ? await this.prisma.address.findUnique({
+            where: { id: dto.addressId, userId },
+          })
+        : await this.prisma.address.findFirst({
+            where: { userId, isDefault: true },
+          });
 
       if (!userAddress) {
-        throw new BadRequestException("Delivery address not found. Please add an address first.");
+        throw new BadRequestException(
+          'Delivery address not found. Please add an address first.',
+        );
       }
 
-      const productIds = dto.items.map(i => i.productId).filter((id): id is string => !!id);
+      const productIds = dto.items
+        .map((i) => i.productId)
+        .filter((id): id is string => !!id);
       if (productIds.length !== dto.items.length) {
-        throw new BadRequestException("All items in a grocery order must specify a productId.");
+        throw new BadRequestException(
+          'All items in a grocery order must specify a productId.',
+        );
       }
 
       const dbInventory = await this.prisma.storeInventory.findMany({
@@ -75,19 +100,34 @@ export class OrdersService {
       });
 
       if (dbInventory.length !== new Set(productIds).size) {
-        throw new BadRequestException("Some items are invalid or unavailable at this store.");
+        throw new BadRequestException(
+          'Some items are invalid or unavailable at this store.',
+        );
       }
 
       let itemTotal = 0;
       const orderItemsData: any[] = [];
-      const inventoryCheckList: { storeId: string; productId: string; quantity: number; name: string }[] = [];
+      const inventoryCheckList: {
+        storeId: string;
+        productId: string;
+        quantity: number;
+        name: string;
+      }[] = [];
 
       for (const item of dto.items) {
-        const invItem = dbInventory.find(d => d.productId === item.productId);
-        if (!invItem) throw new BadRequestException(`Product ${item.productId} not found in this store.`);
-        if (!invItem.isAvailable) throw new BadRequestException(`"${invItem.product.name}" is currently unavailable.`);
+        const invItem = dbInventory.find((d) => d.productId === item.productId);
+        if (!invItem)
+          throw new BadRequestException(
+            `Product ${item.productId} not found in this store.`,
+          );
+        if (!invItem.isAvailable)
+          throw new BadRequestException(
+            `"${invItem.product.name}" is currently unavailable.`,
+          );
         if (invItem.stock < item.quantity) {
-          throw new BadRequestException(`Insufficient stock for "${invItem.product.name}". Available: ${invItem.stock}, requested: ${item.quantity}`);
+          throw new BadRequestException(
+            `Insufficient stock for "${invItem.product.name}". Available: ${invItem.stock}, requested: ${item.quantity}`,
+          );
         }
 
         const unitPrice = invItem.salePrice ?? invItem.price;
@@ -114,23 +154,38 @@ export class OrdersService {
       let deliveryCharge = 30;
       if (userAddress && store.lat && store.lng) {
         const distanceKm = this.calculateDistance(
-          userAddress.lat, userAddress.lng,
-          store.lat, store.lng,
+          userAddress.lat,
+          userAddress.lng,
+          store.lat,
+          store.lng,
         );
         deliveryCharge = Math.min(60, Math.round(15 + distanceKm * 7));
       }
 
       let discount = 0;
       if (dto.promoCode) {
-        const result = await this.couponsService.validate(dto.promoCode, userId, itemTotal);
+        const result = await this.couponsService.validate(
+          dto.promoCode,
+          userId,
+          itemTotal,
+        );
         discount = result.discount;
       }
 
-      const commission = Math.round(itemTotal * 0.10 * 100) / 100;
+      const commission = Math.round(itemTotal * 0.1 * 100) / 100;
       const tax = Math.round(itemTotal * 0.05 * 100) / 100;
       const platformFee = 5;
       const driverTip = dto.driverTip ?? 0;
-      const totalAmount = Math.round((itemTotal + tax + deliveryCharge + platformFee + driverTip - discount) * 100) / 100;
+      const totalAmount =
+        Math.round(
+          (itemTotal +
+            tax +
+            deliveryCharge +
+            platformFee +
+            driverTip -
+            discount) *
+            100,
+        ) / 100;
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
       // ─── Create order atomically with inventory updates ──────────────────
@@ -148,7 +203,9 @@ export class OrdersService {
             },
           });
           if (updated.count === 0) {
-            throw new BadRequestException(`Could not allocate stock for "${check.name}" (insufficient inventory).`);
+            throw new BadRequestException(
+              `Could not allocate stock for "${check.name}" (insufficient inventory).`,
+            );
           }
         }
 
@@ -188,7 +245,12 @@ export class OrdersService {
       // ─── Post-creation steps ──────────────────────────────────────────
       if (dto.paymentMode === PaymentMethod.WALLET) {
         try {
-          await this.walletsService.charge(userId, totalAmount, `ORDER_PAYMENT:${order.id}`, `Payment of ₹${totalAmount} for order #${order.id.slice(-6)}`);
+          await this.walletsService.charge(
+            userId,
+            totalAmount,
+            `ORDER_PAYMENT:${order.id}`,
+            `Payment of ₹${totalAmount} for order #${order.id.slice(-6)}`,
+          );
           await this.prisma.order.update({
             where: { id: order.id },
             data: { isPaid: true },
@@ -199,7 +261,12 @@ export class OrdersService {
           await this.prisma.$transaction(async (tx) => {
             for (const check of inventoryCheckList) {
               await tx.storeInventory.update({
-                where: { storeId_productId: { storeId: check.storeId, productId: check.productId } },
+                where: {
+                  storeId_productId: {
+                    storeId: check.storeId,
+                    productId: check.productId,
+                  },
+                },
                 data: { stock: { increment: check.quantity } },
               });
             }
@@ -207,24 +274,39 @@ export class OrdersService {
 
           await this.prisma.order.update({
             where: { id: order.id },
-            data: { status: 'CANCELLED', cancellationReason: 'Insufficient wallet balance' },
+            data: {
+              status: 'CANCELLED',
+              cancellationReason: 'Insufficient wallet balance',
+            },
           });
           throw err;
         }
       }
 
       if (dto.promoCode && discount > 0) {
-        await this.couponsService.recordUsage(dto.promoCode, userId, order.id, discount);
+        await this.couponsService.recordUsage(
+          dto.promoCode,
+          userId,
+          order.id,
+          discount,
+        );
       }
 
       if (order.isPaid || order.paymentMode === PaymentMethod.COD) {
-        this.notificationsService.send(
-          store.managerId,
-          '🔔 New Instamart Order!',
-          `A new grocery order of ₹${totalAmount} has been placed.`,
-          'ORDER_UPDATE',
-          { orderId: order.id },
-        ).catch(e => this.logger.error('Failed to send push notification to store manager', e));
+        this.notificationsService
+          .send(
+            store.managerId,
+            '🔔 New Instamart Order!',
+            `A new grocery order of ₹${totalAmount} has been placed.`,
+            'ORDER_UPDATE',
+            { orderId: order.id },
+          )
+          .catch((e) =>
+            this.logger.error(
+              'Failed to send push notification to store manager',
+              e,
+            ),
+          );
 
         this.eventsGateway.emitNewOrderToStore(store.id, {
           orderId: order.id,
@@ -256,25 +338,36 @@ export class OrdersService {
 
     // ─── FOOD ORDER FLOW (Original logic) ───────────────────────────────────
     if (!dto.restaurantId) {
-      throw new BadRequestException("restaurantId is required for food orders.");
+      throw new BadRequestException(
+        'restaurantId is required for food orders.',
+      );
     }
     const restaurant = await this.prisma.restaurant.findUnique({
       where: { id: dto.restaurantId },
     });
 
-    if (!restaurant) throw new NotFoundException("Restaurant not found");
-    if (!restaurant.isOpen) throw new BadRequestException("Restaurant is closed");
+    if (!restaurant) throw new NotFoundException('Restaurant not found');
+    if (!restaurant.isOpen)
+      throw new BadRequestException('Restaurant is closed');
 
     const userAddress = dto.addressId
-      ? await this.prisma.address.findUnique({ where: { id: dto.addressId, userId } })
-      : await this.prisma.address.findFirst({ where: { userId, isDefault: true } });
+      ? await this.prisma.address.findUnique({
+          where: { id: dto.addressId, userId },
+        })
+      : await this.prisma.address.findFirst({
+          where: { userId, isDefault: true },
+        });
 
     if (!userAddress) {
-      throw new BadRequestException("Delivery address not found. Please add an address first.");
+      throw new BadRequestException(
+        'Delivery address not found. Please add an address first.',
+      );
     }
 
     // ─── Fetch all menu items with their variants and addon options ────────
-    const menuItemIds = dto.items.map(i => i.menuItemId).filter((id): id is string => typeof id === 'string');
+    const menuItemIds = dto.items
+      .map((i) => i.menuItemId)
+      .filter((id): id is string => typeof id === 'string');
     const dbItems = await this.prisma.menuItem.findMany({
       where: {
         id: { in: menuItemIds },
@@ -287,7 +380,9 @@ export class OrdersService {
     });
 
     if (dbItems.length !== new Set(menuItemIds).size) {
-      throw new BadRequestException("Some items are invalid or don't belong to this restaurant.");
+      throw new BadRequestException(
+        "Some items are invalid or don't belong to this restaurant.",
+      );
     }
 
     // ─── Validate & calculate each line item ──────────────────────────────
@@ -295,24 +390,38 @@ export class OrdersService {
     const orderItemsData: any[] = [];
 
     for (const item of dto.items) {
-      const dbItem = dbItems.find(d => d.id === item.menuItemId);
-      if (!dbItem) throw new BadRequestException(`Menu item ${item.menuItemId} not found.`);
-      if (!dbItem.isAvailable) throw new BadRequestException(`"${dbItem.name}" is currently unavailable.`);
+      const dbItem = dbItems.find((d) => d.id === item.menuItemId);
+      if (!dbItem)
+        throw new BadRequestException(
+          `Menu item ${item.menuItemId} not found.`,
+        );
+      if (!dbItem.isAvailable)
+        throw new BadRequestException(
+          `"${dbItem.name}" is currently unavailable.`,
+        );
 
       // ── Resolve variant ─────────────────────────────────────────────────
       let variant: any;
       if (item.variantId) {
-        variant = dbItem.variants.find(v => v.id === item.variantId);
-        if (!variant) throw new BadRequestException(`Variant ${item.variantId} does not belong to "${dbItem.name}".`);
+        variant = dbItem.variants.find((v) => v.id === item.variantId);
+        if (!variant)
+          throw new BadRequestException(
+            `Variant ${item.variantId} does not belong to "${dbItem.name}".`,
+          );
       } else if (dbItem.variants.length > 0) {
-        variant = dbItem.variants.find(v => v.isDefault) || dbItem.variants[0];
+        variant =
+          dbItem.variants.find((v) => v.isDefault) || dbItem.variants[0];
       }
 
       if (!variant) {
-        throw new BadRequestException(`"${dbItem.name}" has no pricing variant configured.`);
+        throw new BadRequestException(
+          `"${dbItem.name}" has no pricing variant configured.`,
+        );
       }
       if (!variant.isAvailable) {
-        throw new BadRequestException(`Variant "${variant.name}" for "${dbItem.name}" is currently unavailable.`);
+        throw new BadRequestException(
+          `Variant "${variant.name}" for "${dbItem.name}" is currently unavailable.`,
+        );
       }
 
       const unitPrice = variant.salePrice ?? variant.price;
@@ -322,15 +431,19 @@ export class OrdersService {
       const addonSnapshots: any[] = [];
 
       if (item.selectedAddons && item.selectedAddons.length > 0) {
-        const allOptions = dbItem.addons.flatMap(g => g.options);
+        const allOptions = dbItem.addons.flatMap((g) => g.options);
 
         for (const sel of item.selectedAddons) {
-          const option = allOptions.find(o => o.id === sel.addonOptionId);
+          const option = allOptions.find((o) => o.id === sel.addonOptionId);
           if (!option) {
-            throw new BadRequestException(`Addon option ${sel.addonOptionId} does not belong to "${dbItem.name}".`);
+            throw new BadRequestException(
+              `Addon option ${sel.addonOptionId} does not belong to "${dbItem.name}".`,
+            );
           }
           if (!option.isAvailable) {
-            throw new BadRequestException(`Addon "${option.name}" is currently unavailable.`);
+            throw new BadRequestException(
+              `Addon "${option.name}" is currently unavailable.`,
+            );
           }
           const qty = sel.quantity ?? 1;
           addonsPrice += option.price * qty;
@@ -365,23 +478,38 @@ export class OrdersService {
     let deliveryCharge = 30;
     if (userAddress && restaurant.lat && restaurant.lng) {
       const distanceKm = this.calculateDistance(
-        userAddress.lat, userAddress.lng,
-        restaurant.lat, restaurant.lng,
+        userAddress.lat,
+        userAddress.lng,
+        restaurant.lat,
+        restaurant.lng,
       );
       deliveryCharge = Math.min(60, Math.round(15 + distanceKm * 7));
     }
 
     let discount = 0;
     if (dto.promoCode) {
-      const result = await this.couponsService.validate(dto.promoCode, userId, itemTotal);
+      const result = await this.couponsService.validate(
+        dto.promoCode,
+        userId,
+        itemTotal,
+      );
       discount = result.discount;
     }
 
-    const commission = Math.round(itemTotal * 0.20 * 100) / 100;
+    const commission = Math.round(itemTotal * 0.2 * 100) / 100;
     const tax = Math.round(itemTotal * 0.05 * 100) / 100;
     const platformFee = 5;
     const driverTip = dto.driverTip ?? 0;
-    const totalAmount = Math.round((itemTotal + tax + deliveryCharge + platformFee + driverTip - discount) * 100) / 100;
+    const totalAmount =
+      Math.round(
+        (itemTotal +
+          tax +
+          deliveryCharge +
+          platformFee +
+          driverTip -
+          discount) *
+          100,
+      ) / 100;
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
 
     // ─── Create order atomically ──────────────────────────────────────────
@@ -421,7 +549,12 @@ export class OrdersService {
     // ─── Post-creation steps (wallet, coupon, notifications) ──────────────
     if (dto.paymentMode === PaymentMethod.WALLET) {
       try {
-        await this.walletsService.charge(userId, totalAmount, `ORDER_PAYMENT:${order.id}`, `Payment of ₹${totalAmount} for order #${order.id.slice(-6)}`);
+        await this.walletsService.charge(
+          userId,
+          totalAmount,
+          `ORDER_PAYMENT:${order.id}`,
+          `Payment of ₹${totalAmount} for order #${order.id.slice(-6)}`,
+        );
         await this.prisma.order.update({
           where: { id: order.id },
           data: { isPaid: true },
@@ -430,24 +563,39 @@ export class OrdersService {
       } catch (err) {
         await this.prisma.order.update({
           where: { id: order.id },
-          data: { status: 'CANCELLED', cancellationReason: 'Insufficient wallet balance' },
+          data: {
+            status: 'CANCELLED',
+            cancellationReason: 'Insufficient wallet balance',
+          },
         });
         throw err;
       }
     }
 
     if (dto.promoCode && discount > 0) {
-      await this.couponsService.recordUsage(dto.promoCode, userId, order.id, discount);
+      await this.couponsService.recordUsage(
+        dto.promoCode,
+        userId,
+        order.id,
+        discount,
+      );
     }
 
     if (order.isPaid || order.paymentMode === PaymentMethod.COD) {
-      this.notificationsService.send(
-        restaurant.managerId,
-        '🔔 New Order!',
-        `A new order of ₹${totalAmount} has been placed.`,
-        'ORDER_UPDATE',
-        { orderId: order.id },
-      ).catch(e => this.logger.error('Failed to send push notification to restaurant', e));
+      this.notificationsService
+        .send(
+          restaurant.managerId,
+          '🔔 New Order!',
+          `A new order of ₹${totalAmount} has been placed.`,
+          'ORDER_UPDATE',
+          { orderId: order.id },
+        )
+        .catch((e) =>
+          this.logger.error(
+            'Failed to send push notification to restaurant',
+            e,
+          ),
+        );
 
       this.eventsGateway.emitNewOrderToRestaurant(restaurant.id, {
         orderId: order.id,
@@ -477,14 +625,21 @@ export class OrdersService {
     return order;
   }
 
-  private calculateDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  private calculateDistance(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number,
+  ): number {
     const R = 6371;
     const dLat = this.toRad(lat2 - lat1);
     const dLng = this.toRad(lng2 - lng1);
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(this.toRad(lat1)) * Math.cos(this.toRad(lat2)) *
-      Math.sin(dLng / 2) * Math.sin(dLng / 2);
+      Math.cos(this.toRad(lat1)) *
+        Math.cos(this.toRad(lat2)) *
+        Math.sin(dLng / 2) *
+        Math.sin(dLng / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   }
@@ -493,34 +648,47 @@ export class OrdersService {
     return deg * (Math.PI / 180);
   }
 
-  async updateStatus(orderId: string, status: OrderStatus, actor: Pick<User, 'id' | 'role'>) {
+  async updateStatus(
+    orderId: string,
+    status: OrderStatus,
+    actor: Pick<User, 'id' | 'role'>,
+  ) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
         restaurant: true,
         store: true,
         ...ORDER_ITEMS_INCLUDE,
-      }
+      },
     });
 
-    if (!order) throw new NotFoundException("Order not found");
+    if (!order) throw new NotFoundException('Order not found');
 
     if (order.status === status) {
       return order;
     }
 
-    const merchantManagerId = order.restaurant?.managerId ?? order.store?.managerId;
+    const merchantManagerId =
+      order.restaurant?.managerId ?? order.store?.managerId;
     // Allow: Admin, merchant manager, or the assigned store picker
     let isAssignedPicker = false;
     if (actor.role === Role.STORE_PICKER && order.pickerId) {
-      const picker = await this.prisma.storePicker.findUnique({ where: { userId: actor.id } });
+      const picker = await this.prisma.storePicker.findUnique({
+        where: { userId: actor.id },
+      });
       if (picker && order.pickerId === picker.id) {
         isAssignedPicker = true;
       }
     }
 
-    if (actor.role !== Role.ADMIN && merchantManagerId !== actor.id && !isAssignedPicker) {
-      throw new ForbiddenException("You do not have permission to manage this order.")
+    if (
+      actor.role !== Role.ADMIN &&
+      merchantManagerId !== actor.id &&
+      !isAssignedPicker
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to manage this order.',
+      );
     }
 
     const allowedTransitions: Partial<Record<OrderStatus, OrderStatus[]>> = {
@@ -540,7 +708,11 @@ export class OrdersService {
     }
 
     // If a grocery order gets cancelled or refused, revert the allocated inventory back
-    if (order.type === OrderType.GROCERY && ['CANCELLED', 'REFUSED'].includes(status) && !['CANCELLED', 'REFUSED'].includes(order.status)) {
+    if (
+      order.type === OrderType.GROCERY &&
+      ['CANCELLED', 'REFUSED'].includes(status) &&
+      !['CANCELLED', 'REFUSED'].includes(order.status)
+    ) {
       await this.prisma.$transaction(async (tx) => {
         for (const item of order.items) {
           if (item.productId && order.storeId) {
@@ -561,8 +733,14 @@ export class OrdersService {
 
       // Release the assigned picker so they can take new orders
       if (order.pickerId) {
-        this.storeManagementService.releasePickerFromOrder(orderId, order.pickerId)
-          .catch(e => this.logger.error(`Failed to release picker for cancelled order ${orderId}:`, e));
+        this.storeManagementService
+          .releasePickerFromOrder(orderId, order.pickerId)
+          .catch((e) =>
+            this.logger.error(
+              `Failed to release picker for cancelled order ${orderId}:`,
+              e,
+            ),
+          );
       }
     }
 
@@ -584,33 +762,48 @@ export class OrdersService {
 
     if (status === 'ACCEPTED') {
       title = 'Order Accepted! 🍔';
-      body = order.type === OrderType.GROCERY
-        ? 'The store has accepted your order and a picker is packing it.'
-        : 'The restaurant has accepted your order and is preparing it.';
+      body =
+        order.type === OrderType.GROCERY
+          ? 'The store has accepted your order and a picker is packing it.'
+          : 'The restaurant has accepted your order and is preparing it.';
 
       // Auto-assign a picker for grocery orders
       if (order.type === OrderType.GROCERY && order.storeId) {
-        this.storeManagementService.autoAssignPicker(orderId, order.storeId)
-          .catch(e => this.logger.error(`Failed to auto-assign picker for order ${orderId}:`, e));
+        this.storeManagementService
+          .autoAssignPicker(orderId, order.storeId)
+          .catch((e) =>
+            this.logger.error(
+              `Failed to auto-assign picker for order ${orderId}:`,
+              e,
+            ),
+          );
       }
     } else if (status === 'READY') {
       title = 'Order is Ready! 🛍️';
-      body = order.type === OrderType.GROCERY
-        ? 'Your groceries are packed and ready! Assigning a delivery partner...'
-        : 'The restaurant has finished preparing your order. Assigning a delivery partner...';
+      body =
+        order.type === OrderType.GROCERY
+          ? 'Your groceries are packed and ready! Assigning a delivery partner...'
+          : 'The restaurant has finished preparing your order. Assigning a delivery partner...';
 
       // Mark the picker's job as complete for grocery orders
       if (order.type === OrderType.GROCERY && order.pickerId) {
-        this.storeManagementService.completePickingForOrder(orderId, order.pickerId)
-          .catch(e => this.logger.error(`Failed to complete picking for order ${orderId}:`, e));
+        this.storeManagementService
+          .completePickingForOrder(orderId, order.pickerId)
+          .catch((e) =>
+            this.logger.error(
+              `Failed to complete picking for order ${orderId}:`,
+              e,
+            ),
+          );
       }
 
-      this.orderQueue.add(
-        'dispatch-order',
-        { orderId: orderId, ignoredDriverIds: [], attemptCount: 0 },
-        { jobId: `dispatch-${orderId}`, removeOnComplete: true }
-      ).catch(e => this.logger.error('Failed to trigger auto-dispatch', e));
-
+      this.orderQueue
+        .add(
+          'dispatch-order',
+          { orderId: orderId, ignoredDriverIds: [], attemptCount: 0 },
+          { jobId: `dispatch-${orderId}`, removeOnComplete: true },
+        )
+        .catch((e) => this.logger.error('Failed to trigger auto-dispatch', e));
     } else if (status === 'ON_THE_WAY') {
       title = 'Out for Delivery! 🛵';
       body = 'Your food is on the way to you.';
@@ -618,45 +811,57 @@ export class OrdersService {
       title = 'Order Delivered! 🎉';
       body = 'Enjoy your meal!';
 
-      const deliveredCustomer = await this.prisma.user.findUnique({ where: { id: order.customerId } });
+      const deliveredCustomer = await this.prisma.user.findUnique({
+        where: { id: order.customerId },
+      });
       if (deliveredCustomer?.email) {
-        this.communicationsService.queueEmail({
-          to: deliveredCustomer.email,
-          subject: `Order Delivered! #${orderId}`,
-          template: 'order_delivered',
-          event: 'ORDER_DELIVERED',
-          userId: order.customerId,
-          templateData: {
-            userName: deliveredCustomer.name,
-            orderId: orderId,
-            restaurantName: order.restaurant?.name ?? order.store?.name ?? 'Merchant',
-            totalAmount: order.totalAmount,
-            reviewUrl: `${process.env.CUSTOMER_APP_SCHEME}://(tabs)/orders/${orderId}?openReview=true`,
-            items: order.items.map(item => ({
-              name: item.itemName,
-              quantity: item.quantity,
-              price: item.totalPrice,
-            })),
-            itemTotal: order.itemTotal,
-            tax: order.tax,
-            deliveryCharge: order.deliveryCharge,
-            platformFee: order.platformFee,
-            discount: order.discount,
-            driverTip: order.driverTip,
-          },
-        }).catch(e => this.logger.error(`Failed to queue order delivered email: ${e}`));
+        this.communicationsService
+          .queueEmail({
+            to: deliveredCustomer.email,
+            subject: `Order Delivered! #${orderId}`,
+            template: 'order_delivered',
+            event: 'ORDER_DELIVERED',
+            userId: order.customerId,
+            templateData: {
+              userName: deliveredCustomer.name,
+              orderId: orderId,
+              restaurantName:
+                order.restaurant?.name ?? order.store?.name ?? 'Merchant',
+              totalAmount: order.totalAmount,
+              reviewUrl: `${process.env.CUSTOMER_APP_SCHEME}://(tabs)/orders/${orderId}?openReview=true`,
+              items: order.items.map((item) => ({
+                name: item.itemName,
+                quantity: item.quantity,
+                price: item.totalPrice,
+              })),
+              itemTotal: order.itemTotal,
+              tax: order.tax,
+              deliveryCharge: order.deliveryCharge,
+              platformFee: order.platformFee,
+              discount: order.discount,
+              driverTip: order.driverTip,
+            },
+          })
+          .catch((e) =>
+            this.logger.error(`Failed to queue order delivered email: ${e}`),
+          );
       }
     } else if (status === 'CANCELLED') {
       title = 'Order Cancelled ❌';
       body = 'Your order has been cancelled.';
     }
 
-    this.notificationsService.send(
-      order.customerId,
-      title,
-      body,
-      'ORDER_UPDATE',
-      { orderId, status, orderType: order.type, storeId: order.storeId, restaurantId: order.restaurantId }).catch(e => this.logger.error('Failed to send order update push notification', e));
+    this.notificationsService
+      .send(order.customerId, title, body, 'ORDER_UPDATE', {
+        orderId,
+        status,
+        orderType: order.type,
+        storeId: order.storeId,
+        restaurantId: order.restaurantId,
+      })
+      .catch((e) =>
+        this.logger.error('Failed to send order update push notification', e),
+      );
 
     if (['DELIVERED', 'CANCELLED', 'REFUSED'].includes(status)) {
       this.eventsGateway.cleanupOrderRoom(orderId);
@@ -665,7 +870,11 @@ export class OrdersService {
     return updatedOrder;
   }
 
-  async bulkUpdateStatus(orderIds: string[], status: OrderStatus, actor: Pick<User, 'id' | 'role'>) {
+  async bulkUpdateStatus(
+    orderIds: string[],
+    status: OrderStatus,
+    actor: Pick<User, 'id' | 'role'>,
+  ) {
     const results: any[] = [];
     const errors: any[] = [];
 
@@ -703,9 +912,9 @@ export class OrdersService {
         driver: {
           include: {
             user: {
-              select: { name: true, phoneNumber: true }
-            }
-          }
+              select: { name: true, phoneNumber: true },
+            },
+          },
         },
         ...ORDER_ITEMS_INCLUDE,
         restaurant: true,
@@ -716,23 +925,27 @@ export class OrdersService {
             name: true,
             phoneNumber: true,
             email: true,
-            image: true
-          }
+            image: true,
+          },
         },
-        review: true
-      }
+        review: true,
+      },
     });
 
-    if (!order) throw new NotFoundException("Order not found");
+    if (!order) throw new NotFoundException('Order not found');
 
     if (actor) {
       const isCustomer = order.customerId === actor.id;
-      const isManager = order.restaurant?.managerId === actor.id || order.store?.managerId === actor.id;
+      const isManager =
+        order.restaurant?.managerId === actor.id ||
+        order.store?.managerId === actor.id;
       const isDriver = order.driver?.userId === actor.id;
       const isAdmin = actor.role === Role.ADMIN;
 
       if (!isCustomer && !isManager && !isDriver && !isAdmin) {
-        throw new ForbiddenException('You do not have permission to view this order.');
+        throw new ForbiddenException(
+          'You do not have permission to view this order.',
+        );
       }
     }
 
@@ -745,20 +958,22 @@ export class OrdersService {
       lng: order.deliveryLng,
     };
 
-    const driver = order.driver ? {
-      id: order.driver.id,
-      name: order.driver.user.name,
-      phone: order.driver.user.phoneNumber,
-      vehiclePlate: order.driver.vehiclePlate,
-      profilePic: order.driver.profilePic,
-      currentLat: order.driver.currentLat,
-      currentLng: order.driver.currentLng,
-    } : null;
+    const driver = order.driver
+      ? {
+          id: order.driver.id,
+          name: order.driver.user.name,
+          phone: order.driver.user.phoneNumber,
+          vehiclePlate: order.driver.vehiclePlate,
+          profilePic: order.driver.profilePic,
+          currentLat: order.driver.currentLat,
+          currentLng: order.driver.currentLng,
+        }
+      : null;
 
     return {
       ...order,
       driver,
-      customerAddress
+      customerAddress,
     };
   }
 
@@ -767,12 +982,19 @@ export class OrdersService {
       where: {
         customerId: userId,
         status: {
-          notIn: ['DELIVERED', 'CANCELLED', 'REFUSED']
-        }
+          notIn: ['DELIVERED', 'CANCELLED', 'REFUSED'],
+        },
       },
       include: {
         restaurant: {
-          select: { name: true, image: true, id: true, address: true, lat: true, lng: true }
+          select: {
+            name: true,
+            image: true,
+            id: true,
+            address: true,
+            lat: true,
+            lng: true,
+          },
         },
         driver: {
           select: {
@@ -782,26 +1004,28 @@ export class OrdersService {
             profilePic: true,
             currentLat: true,
             currentLng: true,
-          }
+          },
         },
         ...ORDER_ITEMS_INCLUDE,
       },
-      orderBy: { placedAt: 'desc' }
+      orderBy: { placedAt: 'desc' },
     });
 
     if (!currentOrder) {
-      throw new NotFoundException("No active order found");
+      throw new NotFoundException('No active order found');
     }
 
-    const driver = currentOrder.driver ? {
-      id: currentOrder.driver.id,
-      name: currentOrder.driver.user.name,
-      phone: currentOrder.driver.user.phoneNumber,
-      vehiclePlate: currentOrder.driver.vehiclePlate,
-      profilePic: currentOrder.driver.profilePic,
-      currentLat: currentOrder.driver.currentLat,
-      currentLng: currentOrder.driver.currentLng,
-    } : null;
+    const driver = currentOrder.driver
+      ? {
+          id: currentOrder.driver.id,
+          name: currentOrder.driver.user.name,
+          phone: currentOrder.driver.user.phoneNumber,
+          vehiclePlate: currentOrder.driver.vehiclePlate,
+          profilePic: currentOrder.driver.profilePic,
+          currentLat: currentOrder.driver.currentLat,
+          currentLng: currentOrder.driver.currentLng,
+        }
+      : null;
 
     const customerAddress = {
       addressLine: currentOrder.deliveryAddressLine,
@@ -815,7 +1039,7 @@ export class OrdersService {
     return {
       ...currentOrder,
       driver,
-      customerAddress
+      customerAddress,
     };
   }
 
@@ -831,22 +1055,35 @@ export class OrdersService {
         take: limitNumber,
         include: {
           restaurant: {
-            select: { name: true, image: true, id: true, address: true }
+            select: { name: true, image: true, id: true, address: true },
           },
           store: {
-            select: { name: true, logo: true, id: true, address: true }
+            select: { name: true, logo: true, id: true, address: true },
           },
           ...ORDER_ITEMS_INCLUDE,
         },
-        orderBy: { placedAt: 'desc' }
+        orderBy: { placedAt: 'desc' },
       }),
-      this.prisma.order.count({ where: { customerId: userId } })
+      this.prisma.order.count({ where: { customerId: userId } }),
     ]);
 
-    return { data, meta: { total, page: pageNumber, limit: limitNumber, totalPages: Math.ceil(total / limitNumber) } };
+    return {
+      data,
+      meta: {
+        total,
+        page: pageNumber,
+        limit: limitNumber,
+        totalPages: Math.ceil(total / limitNumber),
+      },
+    };
   }
 
-  async getRestaurantOrders(user: Pick<User, 'id' | 'role'>, dto: PaginationDto, status?: OrderStatus, restaurantId?: string) {
+  async getRestaurantOrders(
+    user: Pick<User, 'id' | 'role'>,
+    dto: PaginationDto,
+    status?: OrderStatus,
+    restaurantId?: string,
+  ) {
     const pageNumber = dto.page || 1;
     const limitNumber = dto.limit || 10;
     const skip = (pageNumber - 1) * limitNumber;
@@ -859,7 +1096,7 @@ export class OrdersService {
       where = {
         restaurant: {
           managerId: user.id,
-        }
+        },
       };
     }
 
@@ -878,15 +1115,15 @@ export class OrdersService {
           },
           ...ORDER_ITEMS_INCLUDE,
           driver: {
-            include: { user: { select: { name: true, phoneNumber: true } } }
-          }
+            include: { user: { select: { name: true, phoneNumber: true } } },
+          },
         },
         orderBy: { placedAt: 'desc' },
       }),
-      this.prisma.order.count({ where })
+      this.prisma.order.count({ where }),
     ]);
 
-    const data = rawData.map(order => {
+    const data = rawData.map((order) => {
       const customerAddress = {
         addressLine: order.deliveryAddressLine,
         landmark: order.deliveryLandmark,
@@ -896,22 +1133,31 @@ export class OrdersService {
         lng: order.deliveryLng,
       };
 
-      const driver = order.driver ? {
-        ...order.driver,
-        phone: order.driver.user.phoneNumber,
-        name: order.driver.user.name,
-      } : null;
+      const driver = order.driver
+        ? {
+            ...order.driver,
+            phone: order.driver.user.phoneNumber,
+            name: order.driver.user.name,
+          }
+        : null;
 
       return {
         ...order,
         customerAddress,
-        driver
+        driver,
       };
     });
 
-    return { data, meta: { total, page: pageNumber, limit: limitNumber, totalPages: Math.ceil(total / limitNumber) } };
+    return {
+      data,
+      meta: {
+        total,
+        page: pageNumber,
+        limit: limitNumber,
+        totalPages: Math.ceil(total / limitNumber),
+      },
+    };
   }
-
 
   // ─── CUSTOMER CANCEL ORDER ──────────────────────────────────────────────
   async cancelOrder(userId: string, orderId: string) {
@@ -934,7 +1180,11 @@ export class OrdersService {
   }
 
   // ─── MANAGER CANCEL ORDER ──────────────────────────────────────────────
-  async cancelOrderByManager(orderId: string, user: Pick<User, 'id' | 'role'>, reason: string) {
+  async cancelOrderByManager(
+    orderId: string,
+    user: Pick<User, 'id' | 'role'>,
+    reason: string,
+  ) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: { restaurant: true, store: true },
@@ -942,22 +1192,30 @@ export class OrdersService {
 
     if (!order) throw new NotFoundException('Order not found');
 
-    const merchantManagerId = order.restaurant?.managerId ?? order.store?.managerId;
+    const merchantManagerId =
+      order.restaurant?.managerId ?? order.store?.managerId;
     if (user.role !== Role.ADMIN && merchantManagerId !== user.id) {
-      throw new ForbiddenException('You do not have permission to manage this merchant.');
+      throw new ForbiddenException(
+        'You do not have permission to manage this merchant.',
+      );
     }
 
     if (order.status === 'DELIVERED' || order.status === 'CANCELLED') {
       throw new BadRequestException(`Cannot cancel a ${order.status} order.`);
     }
 
-    return this.processOrderCancellation(order, reason || 'Cancelled by merchant');
+    return this.processOrderCancellation(
+      order,
+      reason || 'Cancelled by merchant',
+    );
   }
 
   // ─── SHARED CANCELLATION + AUTO-REFUND LOGIC ───────────────────────────
   private async processOrderCancellation(order: any, reason: string) {
     if (order.status === 'DELIVERED') {
-      throw new BadRequestException('Cannot cancel a DELIVERED order. Financial settlement has already occurred.');
+      throw new BadRequestException(
+        'Cannot cancel a DELIVERED order. Financial settlement has already occurred.',
+      );
     }
 
     const cancelledOrder = await this.prisma.order.update({
@@ -968,7 +1226,7 @@ export class OrdersService {
       },
       include: {
         driver: true,
-      }
+      },
     });
 
     // Revert grocery inventory stock if order is GROCERY
@@ -995,8 +1253,14 @@ export class OrdersService {
       }
 
       if (order.pickerId) {
-        this.storeManagementService.releasePickerFromOrder(order.id, order.pickerId)
-          .catch(e => this.logger.error(`Failed to release picker for cancelled order ${order.id}:`, e));
+        this.storeManagementService
+          .releasePickerFromOrder(order.id, order.pickerId)
+          .catch((e) =>
+            this.logger.error(
+              `Failed to release picker for cancelled order ${order.id}:`,
+              e,
+            ),
+          );
       }
     }
 
@@ -1018,56 +1282,81 @@ export class OrdersService {
         },
       });
 
-      const refundCustomer = await this.prisma.user.findUnique({ where: { id: order.customerId } });
+      const refundCustomer = await this.prisma.user.findUnique({
+        where: { id: order.customerId },
+      });
       if (refundCustomer?.email) {
-        this.communicationsService.queueEmail({
-          to: refundCustomer.email,
-          subject: `Refund Processed for Order #${order.id}`,
-          template: 'refund_processed',
-          event: 'REFUND_PROCESSED',
-          userId: order.customerId,
-          templateData: {
-            userName: refundCustomer.name,
-            refundAmount: order.totalAmount,
-            orderId: order.id,
-            reason,
-          },
-        }).catch(e => this.logger.error(`Failed to queue refund email: ${e}`));
+        this.communicationsService
+          .queueEmail({
+            to: refundCustomer.email,
+            subject: `Refund Processed for Order #${order.id}`,
+            template: 'refund_processed',
+            event: 'REFUND_PROCESSED',
+            userId: order.customerId,
+            templateData: {
+              userName: refundCustomer.name,
+              refundAmount: order.totalAmount,
+              orderId: order.id,
+              reason,
+            },
+          })
+          .catch((e) =>
+            this.logger.error(`Failed to queue refund email: ${e}`),
+          );
       }
     }
 
     if (order.driverId) {
       await this.prisma.driverProfile.update({
         where: { id: order.driverId },
-        data: { status: 'ONLINE' }
+        data: { status: 'ONLINE' },
       });
 
       const driverUserId = cancelledOrder.driver?.userId;
       if (driverUserId) {
-        this.notificationsService.send(
-          driverUserId,
-          'Order VOIDED ❌',
-          `The active order #${order.id.slice(-6)} was cancelled by the customer/restaurant.`,
-          'ORDER_UPDATE',
-          { orderId: order.id, status: 'CANCELLED' }
-        ).catch(e => this.logger.error('Failed to notify driver of cancellation', e));
+        this.notificationsService
+          .send(
+            driverUserId,
+            'Order VOIDED ❌',
+            `The active order #${order.id.slice(-6)} was cancelled by the customer/restaurant.`,
+            'ORDER_UPDATE',
+            { orderId: order.id, status: 'CANCELLED' },
+          )
+          .catch((e) =>
+            this.logger.error('Failed to notify driver of cancellation', e),
+          );
 
-        this.eventsGateway.server.to(`user_${driverUserId}`).emit('order_cancelled', {
-          orderId: order.id,
-          reason
-        });
+        this.eventsGateway.server
+          .to(`user_${driverUserId}`)
+          .emit('order_cancelled', {
+            orderId: order.id,
+            reason,
+          });
       }
     }
 
     this.eventsGateway.emitOrderStatusChange(order.id, 'CANCELLED');
 
-    this.notificationsService.send(
-      order.customerId,
-      'Order Cancelled ❌',
-      `Your order was cancelled: ${reason}`,
-      'ORDER_UPDATE',
-      { orderId: order.id, status: 'CANCELLED', orderType: order.type, storeId: order.storeId, restaurantId: order.restaurantId }
-    ).catch(e => this.logger.error('Failed to send order cancelled push notification', e));
+    this.notificationsService
+      .send(
+        order.customerId,
+        'Order Cancelled ❌',
+        `Your order was cancelled: ${reason}`,
+        'ORDER_UPDATE',
+        {
+          orderId: order.id,
+          status: 'CANCELLED',
+          orderType: order.type,
+          storeId: order.storeId,
+          restaurantId: order.restaurantId,
+        },
+      )
+      .catch((e) =>
+        this.logger.error(
+          'Failed to send order cancelled push notification',
+          e,
+        ),
+      );
 
     this.eventsGateway.cleanupOrderRoom(order.id);
 

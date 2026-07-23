@@ -16,8 +16,14 @@ import { OrderCleanupCron } from './order-cleanup.cron';
     BullModule.registerQueue({
       name: 'orders',
     }),
-    WalletsModule, EventsModule, CouponsModule, NotificationsModule, CommunicationsModule, StoreManagementModule],
+    WalletsModule,
+    EventsModule,
+    CouponsModule,
+    NotificationsModule,
+    CommunicationsModule,
+    StoreManagementModule,
+  ],
   controllers: [OrdersController],
   providers: [OrdersService, OrderQueueProcessor, OrderCleanupCron],
 })
-export class OrdersModule { }
+export class OrdersModule {}

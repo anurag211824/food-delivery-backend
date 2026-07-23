@@ -4,10 +4,10 @@ import { ISmsProvider } from '../interfaces/sms-provider.interface';
 
 /**
  * MSG91 SMS Provider
- * 
+ *
  * API Reference: https://docs.msg91.com/
  * Uses the Flow API (v5) for sending transactional SMS.
- * 
+ *
  * Setup:
  * 1. Sign up at https://msg91.com
  * 2. Get your Authkey from Dashboard → Settings → Server-Side Integration
@@ -15,7 +15,7 @@ import { ISmsProvider } from '../interfaces/sms-provider.interface';
  * 4. Register your Sender ID
  * 5. Complete DLT registration (mandatory for India)
  * 6. Add to .env: MSG91_AUTH_KEY, MSG91_SENDER_ID, MSG91_OTP_TEMPLATE_ID
- * 
+ *
  * Two modes supported:
  * - OTP Mode: Uses MSG91's dedicated OTP API (auto-generates & manages OTP)
  * - Flow Mode: Uses the Flow API for custom transactional SMS
@@ -44,11 +44,15 @@ export class Msg91SmsProvider implements ISmsProvider {
   async send(to: string, message: string): Promise<string> {
     if (!this.authKey) {
       this.logger.error('MSG91 authkey not configured');
-      throw new Error('MSG91 SMS provider not configured. Set MSG91_AUTH_KEY in .env');
+      throw new Error(
+        'MSG91 SMS provider not configured. Set MSG91_AUTH_KEY in .env',
+      );
     }
 
     // Detect if this is an OTP message
-    const isOtp = message.toLowerCase().includes('otp') || message.toLowerCase().includes('verification code');
+    const isOtp =
+      message.toLowerCase().includes('otp') ||
+      message.toLowerCase().includes('verification code');
 
     if (isOtp && this.otpTemplateId) {
       return this.sendOtp(to, message);
@@ -85,13 +89,13 @@ export class Msg91SmsProvider implements ISmsProvider {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'authkey': this.authKey,
+          authkey: this.authKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
       });
 
-      const data = await response.json() as any;
+      const data = await response.json();
 
       if (!response.ok || data.type === 'error') {
         this.logger.error(`MSG91 OTP failed: ${JSON.stringify(data)}`);
@@ -99,7 +103,9 @@ export class Msg91SmsProvider implements ISmsProvider {
       }
 
       const messageId = data.request_id || `msg91-otp-${Date.now()}`;
-      this.logger.debug(`OTP sent via MSG91 to ${mobile}. Request ID: ${messageId}`);
+      this.logger.debug(
+        `OTP sent via MSG91 to ${mobile}. Request ID: ${messageId}`,
+      );
       return messageId;
     } catch (error) {
       this.logger.error(`MSG91 OTP error: ${error}`);
@@ -117,8 +123,12 @@ export class Msg91SmsProvider implements ISmsProvider {
       const templateId = this.smsTemplateId;
 
       if (!templateId) {
-        this.logger.error('MSG91_SMS_TEMPLATE_ID not configured for transactional SMS');
-        throw new Error('MSG91 SMS template ID not configured. Set MSG91_SMS_TEMPLATE_ID in .env');
+        this.logger.error(
+          'MSG91_SMS_TEMPLATE_ID not configured for transactional SMS',
+        );
+        throw new Error(
+          'MSG91 SMS template ID not configured. Set MSG91_SMS_TEMPLATE_ID in .env',
+        );
       }
 
       const url = 'https://control.msg91.com/api/v5/flow/';
@@ -136,21 +146,25 @@ export class Msg91SmsProvider implements ISmsProvider {
       const response = await fetch(url, {
         method: 'POST',
         headers: {
-          'authkey': this.authKey,
+          authkey: this.authKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
       });
 
-      const data = await response.json() as any;
+      const data = await response.json();
 
       if (!response.ok || data.type === 'error') {
         this.logger.error(`MSG91 SMS failed: ${JSON.stringify(data)}`);
-        throw new Error(`MSG91 Flow API error: ${data.message || response.status}`);
+        throw new Error(
+          `MSG91 Flow API error: ${data.message || response.status}`,
+        );
       }
 
       const messageId = data.request_id || `msg91-sms-${Date.now()}`;
-      this.logger.debug(`SMS sent via MSG91 Flow to ${mobile}. Request ID: ${messageId}`);
+      this.logger.debug(
+        `SMS sent via MSG91 Flow to ${mobile}. Request ID: ${messageId}`,
+      );
       return messageId;
     } catch (error) {
       this.logger.error(`MSG91 Flow SMS error: ${error}`);

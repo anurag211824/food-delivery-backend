@@ -24,25 +24,30 @@ const CATEGORY_ITEMS_INCLUDE = {
 export class MenuCategoriesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateMenuCategoryDto, user: { id: string, role: string }): Promise<MenuCategory> {
+  async create(
+    dto: CreateMenuCategoryDto,
+    user: { id: string; role: string },
+  ): Promise<MenuCategory> {
     let restaurantId = dto.restaurantId;
 
     if (!restaurantId) {
       const restaurant = await this.prisma.restaurant.findUnique({
-        where: { managerId: user.id }
+        where: { managerId: user.id },
       });
 
       if (!restaurant) {
-        throw new NotFoundException("You do not have a restaurant yet.");
+        throw new NotFoundException('You do not have a restaurant yet.');
       }
       restaurantId = restaurant.id;
     } else if (user.role !== 'ADMIN') {
       // If a non-admin tries to specify an ID, verify they own it
       const restaurant = await this.prisma.restaurant.findUnique({
-        where: { id: restaurantId }
+        where: { id: restaurantId },
       });
       if (!restaurant || restaurant.managerId !== user.id) {
-        throw new NotFoundException("Restaurant not found or permission denied.");
+        throw new NotFoundException(
+          'Restaurant not found or permission denied.',
+        );
       }
     }
 
@@ -51,8 +56,8 @@ export class MenuCategoriesService {
         name: dto.name,
         image: dto.image,
         type: dto.type,
-        restaurantId: restaurantId
-      }
+        restaurantId: restaurantId,
+      },
     });
   }
 
@@ -86,7 +91,7 @@ export class MenuCategoriesService {
     try {
       return await this.prisma.menuCategory.update({
         where: { id },
-        data: dto
+        data: dto,
       });
     } catch (error) {
       throw new NotFoundException(`Failed to update: Category ${id} not found`);
@@ -96,7 +101,7 @@ export class MenuCategoriesService {
   async remove(id: string): Promise<MenuCategory> {
     try {
       return await this.prisma.menuCategory.delete({
-        where: { id }
+        where: { id },
       });
     } catch (error) {
       throw new NotFoundException(`Failed to delete: Category ${id} not found`);

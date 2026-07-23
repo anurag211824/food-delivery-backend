@@ -4,8 +4,8 @@ import { PartnerRequestsService } from './partner-requests.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-    imports: [NotificationsModule],
-    controllers: [PartnerRequestsController],
-    providers: [PartnerRequestsService],
+  imports: [NotificationsModule],
+  controllers: [PartnerRequestsController],
+  providers: [PartnerRequestsService],
 })
-export class PartnerRequestsModule { }
+export class PartnerRequestsModule {}

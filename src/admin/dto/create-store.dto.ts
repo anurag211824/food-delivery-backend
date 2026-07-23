@@ -7,7 +7,9 @@ export class CreateStoreDto {
   @IsNotEmpty()
   name: string;
 
-  @ApiPropertyOptional({ example: 'Ultra-fast delivery dark store for groceries.' })
+  @ApiPropertyOptional({
+    example: 'Ultra-fast delivery dark store for groceries.',
+  })
   @IsString()
   @IsOptional()
   description?: string;
@@ -37,7 +39,10 @@ export class CreateStoreDto {
   @IsNotEmpty()
   lng: number;
 
-  @ApiProperty({ example: 'user_cuid_123', description: 'ID of the User who will manage this store' })
+  @ApiProperty({
+    example: 'user_cuid_123',
+    description: 'ID of the User who will manage this store',
+  })
   @IsString()
   @IsNotEmpty()
   managerId: string;

@@ -1,5 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { PickerStatus, Role, User } from '@prisma/client';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import { PickerStatus, Role, User, Prisma, OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsGateway } from '../events/events.gateway';
 import { auth } from '../lib/auth';
@@ -15,16 +21,24 @@ export class StoreManagementService {
   ) {}
 
   // ─── ADD A PICKER TO THE STORE ──────────────────────────────────────────
-  async addPicker(storeId: string, managerId: string, dto: { userId: string; name: string }) {
+  async addPicker(
+    storeId: string,
+    managerId: string,
+    dto: { userId: string; name: string },
+  ) {
     // 1. Verify the store belongs to the requesting manager
-    const store = await this.prisma.store.findUnique({ where: { id: storeId } });
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+    });
     if (!store) throw new NotFoundException('Store not found.');
     if (store.managerId !== managerId) {
       throw new ForbiddenException('You do not manage this store.');
     }
 
     // 2. Verify the target user exists
-    const user = await this.prisma.user.findUnique({ where: { id: dto.userId } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: dto.userId },
+    });
     if (!user) throw new NotFoundException(`User "${dto.userId}" not found.`);
 
     // 3. Check if user is already a picker somewhere
@@ -32,7 +46,9 @@ export class StoreManagementService {
       where: { userId: dto.userId },
     });
     if (existingPicker) {
-      throw new BadRequestException('This user is already registered as a picker at a store.');
+      throw new BadRequestException(
+        'This user is already registered as a picker at a store.',
+      );
     }
 
     // 4. Create the picker and promote user role
@@ -52,19 +68,25 @@ export class StoreManagementService {
       });
     });
 
-    this.logger.log(`Picker "${dto.name}" (${dto.userId}) added to store ${storeId}`);
+    this.logger.log(
+      `Picker "${dto.name}" (${dto.userId}) added to store ${storeId}`,
+    );
     return { message: 'Picker added successfully.', picker };
   }
 
   // ─── REMOVE A PICKER FROM THE STORE ─────────────────────────────────────
   async removePicker(storeId: string, pickerId: string, managerId: string) {
-    const store = await this.prisma.store.findUnique({ where: { id: storeId } });
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+    });
     if (!store) throw new NotFoundException('Store not found.');
     if (store.managerId !== managerId) {
       throw new ForbiddenException('You do not manage this store.');
     }
 
-    const picker = await this.prisma.storePicker.findUnique({ where: { id: pickerId } });
+    const picker = await this.prisma.storePicker.findUnique({
+      where: { id: pickerId },
+    });
     if (!picker || picker.storeId !== storeId) {
       throw new NotFoundException('Picker not found in this store.');
     }
@@ -97,7 +119,9 @@ export class StoreManagementService {
 
   // ─── LIST ALL PICKERS FOR A STORE ───────────────────────────────────────
   async listPickers(storeId: string, managerId: string) {
-    const store = await this.prisma.store.findUnique({ where: { id: storeId } });
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+    });
     if (!store) throw new NotFoundException('Store not found.');
     if (store.managerId !== managerId) {
       throw new ForbiddenException('You do not manage this store.');
@@ -106,7 +130,9 @@ export class StoreManagementService {
     const pickers = await this.prisma.storePicker.findMany({
       where: { storeId },
       include: {
-        user: { select: { id: true, name: true, email: true, phoneNumber: true } },
+        user: {
+          select: { id: true, name: true, email: true, phoneNumber: true },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -116,8 +142,11 @@ export class StoreManagementService {
 
   // ─── UPDATE PICKER STATUS (Picker calls this themselves) ────────────────
   async updatePickerStatus(userId: string, status: PickerStatus) {
-    const picker = await this.prisma.storePicker.findUnique({ where: { userId } });
-    if (!picker) throw new NotFoundException('You are not registered as a picker.');
+    const picker = await this.prisma.storePicker.findUnique({
+      where: { userId },
+    });
+    if (!picker)
+      throw new NotFoundException('You are not registered as a picker.');
 
     // Cannot go AVAILABLE if you have active orders — must finish them first
     if (status === PickerStatus.AVAILABLE && picker.activeOrderCount > 0) {
@@ -134,8 +163,11 @@ export class StoreManagementService {
 
   // ─── GET PICKER'S ASSIGNED ORDERS ───────────────────────────────────────
   async getPickerOrders(userId: string) {
-    const picker = await this.prisma.storePicker.findUnique({ where: { userId } });
-    if (!picker) throw new NotFoundException('You are not registered as a picker.');
+    const picker = await this.prisma.storePicker.findUnique({
+      where: { userId },
+    });
+    if (!picker)
+      throw new NotFoundException('You are not registered as a picker.');
 
     const orders = await this.prisma.order.findMany({
       where: {
@@ -160,7 +192,10 @@ export class StoreManagementService {
 
   // ─── AUTO-ASSIGN ORDER TO LEAST-BUSY PICKER ────────────────────────────
   // Called internally when a grocery order transitions to ACCEPTED
-  async autoAssignPicker(orderId: string, storeId: string): Promise<string | null> {
+  async autoAssignPicker(
+    orderId: string,
+    storeId: string,
+  ): Promise<string | null> {
     // Find the least-busy AVAILABLE picker at this store
     const availablePicker = await this.prisma.storePicker.findFirst({
       where: {
@@ -171,7 +206,9 @@ export class StoreManagementService {
     });
 
     if (!availablePicker) {
-      this.logger.warn(`No available pickers at store ${storeId} for order ${orderId}. Order stays unassigned.`);
+      this.logger.warn(
+        `No available pickers at store ${storeId} for order ${orderId}. Order stays unassigned.`,
+      );
       return null;
     }
 
@@ -194,9 +231,14 @@ export class StoreManagementService {
     // Notify the picker via WebSocket
     this.eventsGateway.server
       .to(`user_${availablePicker.userId}`)
-      .emit('picker:new-order', { orderId, message: 'New order assigned to you!' });
+      .emit('picker:new-order', {
+        orderId,
+        message: 'New order assigned to you!',
+      });
 
-    this.logger.log(`Order ${orderId} auto-assigned to picker ${availablePicker.name} (${availablePicker.id})`);
+    this.logger.log(
+      `Order ${orderId} auto-assigned to picker ${availablePicker.name} (${availablePicker.id})`,
+    );
     return availablePicker.id;
   }
 
@@ -204,7 +246,9 @@ export class StoreManagementService {
   // Called when a picker finishes packing — decrements their active count
   async completePickingForOrder(orderId: string, pickerId: string) {
     await this.prisma.$transaction(async (tx) => {
-      const picker = await tx.storePicker.findUnique({ where: { id: pickerId } });
+      const picker = await tx.storePicker.findUnique({
+        where: { id: pickerId },
+      });
       if (!picker) return;
 
       const newActiveCount = Math.max(0, picker.activeOrderCount - 1);
@@ -214,7 +258,10 @@ export class StoreManagementService {
           activeOrderCount: newActiveCount,
           totalOrdersPicked: { increment: 1 },
           // If no more active orders, go back to AVAILABLE
-          status: newActiveCount === 0 ? PickerStatus.AVAILABLE : PickerStatus.PICKING,
+          status:
+            newActiveCount === 0
+              ? PickerStatus.AVAILABLE
+              : PickerStatus.PICKING,
         },
       });
     });
@@ -224,7 +271,9 @@ export class StoreManagementService {
   // Called when an assigned order gets cancelled
   async releasePickerFromOrder(orderId: string, pickerId: string) {
     await this.prisma.$transaction(async (tx) => {
-      const picker = await tx.storePicker.findUnique({ where: { id: pickerId } });
+      const picker = await tx.storePicker.findUnique({
+        where: { id: pickerId },
+      });
       if (!picker) return;
 
       const newActiveCount = Math.max(0, picker.activeOrderCount - 1);
@@ -232,7 +281,10 @@ export class StoreManagementService {
         where: { id: pickerId },
         data: {
           activeOrderCount: newActiveCount,
-          status: newActiveCount === 0 ? PickerStatus.AVAILABLE : PickerStatus.PICKING,
+          status:
+            newActiveCount === 0
+              ? PickerStatus.AVAILABLE
+              : PickerStatus.PICKING,
         },
       });
 
@@ -246,7 +298,9 @@ export class StoreManagementService {
 
   // ─── STORE MANAGER DASHBOARD: LIVE OVERVIEW ─────────────────────────────
   async getStoreDashboard(storeId: string, managerId: string) {
-    const store = await this.prisma.store.findUnique({ where: { id: storeId } });
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+    });
     if (!store) throw new NotFoundException('Store not found.');
     if (store.managerId !== managerId) {
       throw new ForbiddenException('You do not manage this store.');
@@ -284,8 +338,12 @@ export class StoreManagementService {
       }),
     ]);
 
-    const availablePickers = pickers.filter((p) => p.status === PickerStatus.AVAILABLE).length;
-    const pickingPickers = pickers.filter((p) => p.status === PickerStatus.PICKING).length;
+    const availablePickers = pickers.filter(
+      (p) => p.status === PickerStatus.AVAILABLE,
+    ).length;
+    const pickingPickers = pickers.filter(
+      (p) => p.status === PickerStatus.PICKING,
+    ).length;
 
     return {
       store: { id: store.id, name: store.name, isOpen: store.isOpen },
@@ -308,7 +366,9 @@ export class StoreManagementService {
     dto: { name: string; email: string; password: string },
   ) {
     // 1. Verify the store belongs to the requesting manager
-    const store = await this.prisma.store.findUnique({ where: { id: storeId } });
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+    });
     if (!store) throw new NotFoundException('Store not found.');
     if (store.managerId !== managerId) {
       throw new ForbiddenException('You do not manage this store.');
@@ -324,7 +384,9 @@ export class StoreManagementService {
     });
 
     if (!response || !response.user) {
-      throw new BadRequestException('Failed to create picker account. Email may already be in use.');
+      throw new BadRequestException(
+        'Failed to create picker account. Email may already be in use.',
+      );
     }
 
     // 3. Atomically promote to STORE_PICKER and create StorePicker profile
@@ -347,9 +409,12 @@ export class StoreManagementService {
       });
     });
 
-    this.logger.log(`Picker account "${dto.name}" created and linked to store ${store.name}`);
+    this.logger.log(
+      `Picker account "${dto.name}" created and linked to store ${store.name}`,
+    );
     return {
-      message: 'Picker account created successfully. Share the login credentials with the picker.',
+      message:
+        'Picker account created successfully. Share the login credentials with the picker.',
       picker,
       credentials: { email: dto.email, name: dto.name },
     };
@@ -378,7 +443,15 @@ export class StoreManagementService {
   // ─── UPDATE STORE PROFILE ──────────────────────────────────────────────
   async updateStoreProfile(
     managerId: string,
-    dto: { name?: string; description?: string; logo?: string; banner?: string; address?: string; lat?: number; lng?: number },
+    dto: {
+      name?: string;
+      description?: string;
+      logo?: string;
+      banner?: string;
+      address?: string;
+      lat?: number;
+      lng?: number;
+    },
   ) {
     const store = await this.prisma.store.findUnique({ where: { managerId } });
     if (!store) throw new NotFoundException('You do not have a store profile.');
@@ -409,17 +482,25 @@ export class StoreManagementService {
       data: { isOpen },
     });
 
-    return { message: isOpen ? 'Store is now open.' : 'Store is now closed.', store: updated };
+    return {
+      message: isOpen ? 'Store is now open.' : 'Store is now closed.',
+      store: updated,
+    };
   }
 
   // ─── LIST STORE ORDERS (For Store Manager Dashboard) ────────────────────
-  async getStoreOrders(managerId: string, status?: string, page = 1, limit = 20) {
+  async getStoreOrders(
+    managerId: string,
+    status?: string,
+    page = 1,
+    limit = 20,
+  ) {
     const store = await this.prisma.store.findUnique({ where: { managerId } });
     if (!store) throw new NotFoundException('You do not have a store profile.');
 
     const skip = (page - 1) * limit;
-    const where: any = { storeId: store.id };
-    if (status) where.status = status;
+    const where: Prisma.OrderWhereInput = { storeId: store.id };
+    if (status) where.status = status as OrderStatus;
 
     const [orders, total] = await Promise.all([
       this.prisma.order.findMany({
@@ -446,7 +527,11 @@ export class StoreManagementService {
   }
 
   // ─── STORE MANAGER ANALYTICS & STATS ────────────────────────────────────
-  async getStoreStats(user: Pick<User, 'id' | 'role'>, period: StatsPeriod = StatsPeriod.WEEK, storeId?: string) {
+  async getStoreStats(
+    user: Pick<User, 'id' | 'role'>,
+    period: StatsPeriod = StatsPeriod.WEEK,
+    storeId?: string,
+  ) {
     let where: any = {};
     if (user.role === Role.ADMIN && storeId) {
       where = { id: storeId };
@@ -464,19 +549,38 @@ export class StoreManagementService {
       this.getMetrics(store.id, previous.start, previous.end),
     ]);
 
-    const chartData = await this.getChartData(store.id, current.start, current.end, period);
-    const topProducts = await this.getTopProducts(store.id, current.start, current.end);
-    const paymentBreakdown = await this.getPaymentBreakdown(store.id, current.start, current.end);
+    const chartData = await this.getChartData(
+      store.id,
+      current.start,
+      current.end,
+      period,
+    );
+    const topProducts = await this.getTopProducts(
+      store.id,
+      current.start,
+      current.end,
+    );
+    const paymentBreakdown = await this.getPaymentBreakdown(
+      store.id,
+      current.start,
+      current.end,
+    );
 
     return {
       kpis: {
         revenue: {
           value: Math.round(currentMetrics.revenue * 100) / 100,
-          change: this.calcChange(currentMetrics.revenue, previousMetrics.revenue),
+          change: this.calcChange(
+            currentMetrics.revenue,
+            previousMetrics.revenue,
+          ),
         },
         orders: {
           value: currentMetrics.orders,
-          change: this.calcChange(currentMetrics.orders, previousMetrics.orders),
+          change: this.calcChange(
+            currentMetrics.orders,
+            previousMetrics.orders,
+          ),
         },
         aov: {
           value: Math.round(currentMetrics.aov * 100) / 100,
@@ -489,7 +593,12 @@ export class StoreManagementService {
     };
   }
 
-  async getStoreDashboardStats(user: Pick<User, 'id' | 'role'>, startDate?: Date, endDate?: Date, storeId?: string) {
+  async getStoreDashboardStats(
+    user: Pick<User, 'id' | 'role'>,
+    startDate?: Date,
+    endDate?: Date,
+    storeId?: string,
+  ) {
     let where: any = {};
     if (user.role === Role.ADMIN && storeId) {
       where = { id: storeId };
@@ -500,25 +609,28 @@ export class StoreManagementService {
     const store = await this.prisma.store.findUnique({ where });
     if (!store) throw new NotFoundException('Store profile not found.');
 
-    const start = startDate ? new Date(startDate) : new Date(new Date().setHours(0, 0, 0, 0));
+    const start = startDate
+      ? new Date(startDate)
+      : new Date(new Date().setHours(0, 0, 0, 0));
     const end = endDate ? new Date(endDate) : new Date();
 
-    const [metrics, activeOrdersCount, cancelledOrdersCount] = await Promise.all([
-      this.getMetrics(store.id, start, end),
-      this.prisma.order.count({
-        where: {
-          storeId: store.id,
-          status: { in: ['PLACED', 'ACCEPTED', 'PREPARING', 'READY'] },
-        },
-      }),
-      this.prisma.order.count({
-        where: {
-          storeId: store.id,
-          status: { in: ['CANCELLED', 'REFUSED'] },
-          placedAt: { gte: start, lte: end },
-        },
-      }),
-    ]);
+    const [metrics, activeOrdersCount, cancelledOrdersCount] =
+      await Promise.all([
+        this.getMetrics(store.id, start, end),
+        this.prisma.order.count({
+          where: {
+            storeId: store.id,
+            status: { in: ['PLACED', 'ACCEPTED', 'PREPARING', 'READY'] },
+          },
+        }),
+        this.prisma.order.count({
+          where: {
+            storeId: store.id,
+            status: { in: ['CANCELLED', 'REFUSED'] },
+            placedAt: { gte: start, lte: end },
+          },
+        }),
+      ]);
 
     return {
       store: { id: store.id, name: store.name, isOpen: store.isOpen },
@@ -553,7 +665,10 @@ export class StoreManagementService {
       pe = new Date(cs.getTime() - 1);
     }
 
-    return { current: { start: cs, end: now }, previous: { start: ps, end: pe } };
+    return {
+      current: { start: cs, end: now },
+      previous: { start: ps, end: pe },
+    };
   }
 
   private async getMetrics(storeId: string, start: Date, end: Date) {
@@ -573,10 +688,15 @@ export class StoreManagementService {
 
   private calcChange(cur: number, prev: number) {
     if (prev === 0) return cur > 0 ? 100 : 0;
-    return parseFloat(((cur - prev) / prev * 100).toFixed(1));
+    return parseFloat((((cur - prev) / prev) * 100).toFixed(1));
   }
 
-  private async getChartData(storeId: string, start: Date, end: Date, period: StatsPeriod) {
+  private async getChartData(
+    storeId: string,
+    start: Date,
+    end: Date,
+    period: StatsPeriod,
+  ) {
     const orders = await this.prisma.order.findMany({
       where: {
         storeId,
@@ -587,34 +707,48 @@ export class StoreManagementService {
     });
 
     const groups: Record<string, number> = {};
-    orders.forEach(o => {
+    orders.forEach((o) => {
       const d = new Date(o.placedAt);
       let key: string;
       if (period === StatsPeriod.TODAY) key = `${d.getHours()}:00`;
-      else if (period === StatsPeriod.WEEK) key = d.toLocaleDateString('en-US', { weekday: 'short' });
-      else if (period === StatsPeriod.MONTH) key = `Week ${Math.ceil(d.getDate() / 7)}`;
+      else if (period === StatsPeriod.WEEK)
+        key = d.toLocaleDateString('en-US', { weekday: 'short' });
+      else if (period === StatsPeriod.MONTH)
+        key = `Week ${Math.ceil(d.getDate() / 7)}`;
       else key = d.toLocaleDateString('en-US', { month: 'short' });
       groups[key] = (groups[key] || 0) + o.itemTotal;
     });
 
     return Object.entries(groups).map(([label, value]) => ({
-      label, value: Math.round(value * 100) / 100,
+      label,
+      value: Math.round(value * 100) / 100,
     }));
   }
 
   private async getTopProducts(storeId: string, start: Date, end: Date) {
     const items = await this.prisma.orderItem.findMany({
       where: {
-        order: { storeId, status: 'DELIVERED', placedAt: { gte: start, lte: end } },
+        order: {
+          storeId,
+          status: 'DELIVERED',
+          placedAt: { gte: start, lte: end },
+        },
       },
       include: { product: true },
     });
 
-    const counts: Record<string, { orders: number; revenue: number; name: string }> = {};
-    items.forEach(item => {
+    const counts: Record<
+      string,
+      { orders: number; revenue: number; name: string }
+    > = {};
+    items.forEach((item) => {
       if (!item.productId || !item.product) return;
       if (!counts[item.productId]) {
-        counts[item.productId] = { orders: 0, revenue: 0, name: item.product.name };
+        counts[item.productId] = {
+          orders: 0,
+          revenue: 0,
+          name: item.product.name,
+        };
       }
       counts[item.productId].orders += item.quantity;
       counts[item.productId].revenue += item.totalPrice;
@@ -623,7 +757,7 @@ export class StoreManagementService {
     return Object.values(counts)
       .sort((a, b) => b.orders - a.orders)
       .slice(0, 5)
-      .map(i => ({ ...i, revenue: Math.round(i.revenue * 100) / 100 }));
+      .map((i) => ({ ...i, revenue: Math.round(i.revenue * 100) / 100 }));
   }
 
   private async getPaymentBreakdown(storeId: string, start: Date, end: Date) {
@@ -637,7 +771,7 @@ export class StoreManagementService {
       _count: { id: true },
     });
     const total = orders.reduce((s, o) => s + o._count.id, 0);
-    return orders.map(o => ({
+    return orders.map((o) => ({
       label: o.paymentMode,
       count: o._count.id,
       percentage: total > 0 ? Math.round((o._count.id / total) * 100) : 0,

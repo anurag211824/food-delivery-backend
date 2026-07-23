@@ -10,4 +10,4 @@ import { AppConfigModule } from '../app-config/app-config.module';
   providers: [ReferralsService],
   exports: [ReferralsService],
 })
-export class ReferralsModule { }
+export class ReferralsModule {}

@@ -1,17 +1,27 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsNumber, Min, Max } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsNumber,
+  Min,
+  Max,
+} from 'class-validator';
 
 export class CreateAddressDto {
-  @ApiProperty({ 
-    example: 'HOME', 
+  @ApiProperty({
+    example: 'HOME',
     description: 'The nickname/type for the address',
-    enum: ['HOME', 'WORK', 'OTHER'] 
+    enum: ['HOME', 'WORK', 'OTHER'],
   })
   @IsString()
   @IsNotEmpty()
   type: string;
 
-  @ApiProperty({ example: '15 Rajpur Road, Dehradun', description: 'Full street address' })
+  @ApiProperty({
+    example: '15 Rajpur Road, Dehradun',
+    description: 'Full street address',
+  })
   @IsString()
   @IsNotEmpty()
   addressLine: string;

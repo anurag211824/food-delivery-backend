@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -77,7 +82,9 @@ export class StoreInventoryService {
       data: {
         ...(dto.name && { name: dto.name }),
         ...(dto.image !== undefined && { image: dto.image }),
-        ...(dto.parentCategoryId !== undefined && { parentCategoryId: dto.parentCategoryId }),
+        ...(dto.parentCategoryId !== undefined && {
+          parentCategoryId: dto.parentCategoryId,
+        }),
       },
     });
   }
@@ -137,12 +144,22 @@ export class StoreInventoryService {
   }) {
     // Check if SKU or Barcode already exists
     if (dto.sku) {
-      const existing = await this.prisma.product.findUnique({ where: { sku: dto.sku } });
-      if (existing) throw new BadRequestException(`Product with SKU "${dto.sku}" already exists.`);
+      const existing = await this.prisma.product.findUnique({
+        where: { sku: dto.sku },
+      });
+      if (existing)
+        throw new BadRequestException(
+          `Product with SKU "${dto.sku}" already exists.`,
+        );
     }
     if (dto.barcode) {
-      const existing = await this.prisma.product.findUnique({ where: { barcode: dto.barcode } });
-      if (existing) throw new BadRequestException(`Product with Barcode "${dto.barcode}" already exists.`);
+      const existing = await this.prisma.product.findUnique({
+        where: { barcode: dto.barcode },
+      });
+      if (existing)
+        throw new BadRequestException(
+          `Product with Barcode "${dto.barcode}" already exists.`,
+        );
     }
 
     return this.prisma.product.create({
@@ -195,7 +212,8 @@ export class StoreInventoryService {
     const product = await this.prisma.product.findUnique({
       where: { id: dto.productId },
     });
-    if (!product) throw new NotFoundException('Product not found in global catalog.');
+    if (!product)
+      throw new NotFoundException('Product not found in global catalog.');
 
     // Verify category if provided
     if (dto.categoryId) {
@@ -217,7 +235,9 @@ export class StoreInventoryService {
       },
     });
     if (existing) {
-      throw new BadRequestException('Product is already in your store inventory. Use update instead.');
+      throw new BadRequestException(
+        'Product is already in your store inventory. Use update instead.',
+      );
     }
 
     return this.prisma.storeInventory.create({
@@ -298,7 +318,12 @@ export class StoreInventoryService {
   // List all products currently in the store's inventory (paginated & searchable)
   async getStoreInventory(
     managerId: string,
-    options: { categoryId?: string; search?: string; page?: number; limit?: number },
+    options: {
+      categoryId?: string;
+      search?: string;
+      page?: number;
+      limit?: number;
+    },
   ) {
     const store = await this.getStoreForManager(managerId);
 

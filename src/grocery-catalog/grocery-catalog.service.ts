@@ -32,7 +32,12 @@ export class GroceryCatalogService {
     }
 
     // Haversine formula calculation
-    const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const getDistance = (
+      lat1: number,
+      lon1: number,
+      lat2: number,
+      lon2: number,
+    ) => {
       const R = 6371; // Earth radius in km
       const dLat = (lat2 - lat1) * (Math.PI / 180);
       const dLon = (lon2 - lon1) * (Math.PI / 180);
@@ -91,9 +96,14 @@ export class GroceryCatalogService {
   }
 
   // ─── GET PRODUCTS BY CATEGORY ──────────────────────────────────────────
-  async getProductsByCategory(storeId: string, categoryId: string, page = 1, limit = 20) {
+  async getProductsByCategory(
+    storeId: string,
+    categoryId: string,
+    page = 1,
+    limit = 20,
+  ) {
     const skip = (page - 1) * limit;
-    
+
     // Cache key specific to store, category, page, and limit
     const cacheKey = `products:${storeId}:${categoryId}:${page}:${limit}`;
     const cachedData = await this.cacheManager.get<any>(cacheKey);
@@ -107,7 +117,9 @@ export class GroceryCatalogService {
     });
 
     if (!category || category.storeId !== storeId) {
-      throw new NotFoundException(`Category with ID "${categoryId}" not found under this store.`);
+      throw new NotFoundException(
+        `Category with ID "${categoryId}" not found under this store.`,
+      );
     }
 
     // Find all inventory items for this category (or its subcategories)
@@ -243,7 +255,9 @@ export class GroceryCatalogService {
     });
 
     if (!inventoryItem || !inventoryItem.isAvailable) {
-      throw new NotFoundException(`Product with ID "${productId}" is not available in this store.`);
+      throw new NotFoundException(
+        `Product with ID "${productId}" is not available in this store.`,
+      );
     }
 
     return {

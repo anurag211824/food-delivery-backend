@@ -1,10 +1,15 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaginationDto } from '../common/pagination.dto';
 @Injectable()
 export class ReviewsService {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async create(userId: string, dto: CreateReviewDto) {
     // 1. Validate Order
@@ -13,7 +18,7 @@ export class ReviewsService {
       include: {
         restaurant: true,
         driver: true,
-      }
+      },
     });
 
     if (!order) {
@@ -53,7 +58,10 @@ export class ReviewsService {
       // Recalculate Restaurant Rating (only for food orders)
       if (order.restaurant) {
         const newRestCount = order.restaurant.ratingCount + 1;
-        const newRestRating = ((order.restaurant.rating * order.restaurant.ratingCount) + dto.foodRating) / newRestCount;
+        const newRestRating =
+          (order.restaurant.rating * order.restaurant.ratingCount +
+            dto.foodRating) /
+          newRestCount;
 
         await tx.restaurant.update({
           where: { id: order.restaurantId! },
@@ -67,7 +75,10 @@ export class ReviewsService {
       // Recalculate Driver Rating if a driver exists
       if (order.driver) {
         const newDriverCount = order.driver.ratingCount + 1;
-        const newDriverRating = ((order.driver.rating * order.driver.ratingCount) + dto.deliveryRating) / newDriverCount;
+        const newDriverRating =
+          (order.driver.rating * order.driver.ratingCount +
+            dto.deliveryRating) /
+          newDriverCount;
 
         await tx.driverProfile.update({
           where: { id: order.driver.id },
@@ -83,9 +94,11 @@ export class ReviewsService {
   }
 
   async findRestaurantReviews(restaurantId: string, dto: PaginationDto) {
-    const restaurant = await this.prisma.restaurant.findUnique({ where: { id: restaurantId } });
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { id: restaurantId },
+    });
     if (!restaurant) {
-      throw new NotFoundException("Restaurant not found.");
+      throw new NotFoundException('Restaurant not found.');
     }
 
     const pageNumber = dto.page || 1;
@@ -99,14 +112,22 @@ export class ReviewsService {
         take: limitNumber,
         include: {
           user: {
-            select: { name: true, image: true }
-          }
+            select: { name: true, image: true },
+          },
         },
-        orderBy: { createdAt: 'desc' }
+        orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.review.count({ where: { restaurantId } })
+      this.prisma.review.count({ where: { restaurantId } }),
     ]);
 
-    return { data, meta: { total, page: pageNumber, limit: limitNumber, totalPages: Math.ceil(total / limitNumber) } };
+    return {
+      data,
+      meta: {
+        total,
+        page: pageNumber,
+        limit: limitNumber,
+        totalPages: Math.ceil(total / limitNumber),
+      },
+    };
   }
 }

@@ -1,4 +1,10 @@
-import { IsString, IsNotEmpty, IsNumber, IsPositive, Min } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsNumber,
+  IsPositive,
+  Min,
+} from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class ManualRefundDto {
@@ -20,7 +26,8 @@ export class ManualRefundDto {
   amount: number;
 
   @ApiProperty({
-    description: 'The reason for the manual refund (e.g. food quality issue, wrong items)',
+    description:
+      'The reason for the manual refund (e.g. food quality issue, wrong items)',
     example: 'Customer complained about cold food and late delivery.',
   })
   @IsString()

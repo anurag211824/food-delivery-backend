@@ -1,18 +1,36 @@
-import { IsString, IsNotEmpty, IsOptional, IsNumber, IsArray, Min, Max, IsBoolean } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsNumber,
+  IsArray,
+  Min,
+  Max,
+  IsBoolean,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateRestaurantDto {
-  @ApiProperty({ example: 'Tasty Bites', description: 'Name of the restaurant' })
+  @ApiProperty({
+    example: 'Tasty Bites',
+    description: 'Name of the restaurant',
+  })
   @IsString()
   @IsNotEmpty()
   name: string;
 
-  @ApiPropertyOptional({ example: 'Best North Indian food in town', description: 'Short description' })
+  @ApiPropertyOptional({
+    example: 'Best North Indian food in town',
+    description: 'Short description',
+  })
   @IsString()
   @IsOptional()
   description?: string;
 
-  @ApiPropertyOptional({ example: 'https://example.com/logo.jpg', description: 'Restaurant logo/image URL' })
+  @ApiPropertyOptional({
+    example: 'https://example.com/logo.jpg',
+    description: 'Restaurant logo/image URL',
+  })
   @IsString()
   @IsOptional()
   image?: string; // We'll handle file uploads later
@@ -22,12 +40,18 @@ export class CreateRestaurantDto {
   @Min(0)
   costForTwo: number;
 
-  @ApiProperty({ example: ['North Indian', 'Chinese'], description: 'List of cuisines offered' })
+  @ApiProperty({
+    example: ['North Indian', 'Chinese'],
+    description: 'List of cuisines offered',
+  })
   @IsArray()
   @IsString({ each: true })
   cuisineTypes: string[]; // e.g. ["Italian", "Mexican"]
 
-  @ApiProperty({ example: '123, Main Street, City', description: 'Full readable address' })
+  @ApiProperty({
+    example: '123, Main Street, City',
+    description: 'Full readable address',
+  })
   @IsString()
   @IsNotEmpty()
   address: string;
@@ -44,22 +68,35 @@ export class CreateRestaurantDto {
   @Max(180)
   lng: number;
 
-  @ApiPropertyOptional({ example: 'clxyz123', description: 'User ID who will manage this restaurant (Admin only override)' })
+  @ApiPropertyOptional({
+    example: 'clxyz123',
+    description:
+      'User ID who will manage this restaurant (Admin only override)',
+  })
   @IsString()
   @IsOptional()
   managerId?: string;
 
-  @ApiPropertyOptional({ example: '12345678901234', description: 'FSSAI License code' })
+  @ApiPropertyOptional({
+    example: '12345678901234',
+    description: 'FSSAI License code',
+  })
   @IsString()
   @IsOptional()
   fssaiCode?: string;
 
-  @ApiPropertyOptional({ example: '29ABCDE1234F1Z5', description: 'GST Number' })
+  @ApiPropertyOptional({
+    example: '29ABCDE1234F1Z5',
+    description: 'GST Number',
+  })
   @IsString()
   @IsOptional()
   gstNumber?: string;
 
-  @ApiPropertyOptional({ example: true, description: 'Whether the restaurant is accepting orders' })
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Whether the restaurant is accepting orders',
+  })
   @IsBoolean()
   @IsOptional()
   isOpen?: boolean;

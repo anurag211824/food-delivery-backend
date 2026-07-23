@@ -119,7 +119,12 @@ export class OrdersController {
   @ApiParam({ name: 'id', description: 'Order CUID' })
   @ApiBody({ type: UpdateOrderStatusDto })
   @UseGuards(RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER, Role.STORE_MANAGER, Role.ADMIN, Role.STORE_PICKER)
+  @Roles(
+    Role.RESTAURANT_MANAGER,
+    Role.STORE_MANAGER,
+    Role.ADMIN,
+    Role.STORE_PICKER,
+  )
   async updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateOrderStatusDto,
