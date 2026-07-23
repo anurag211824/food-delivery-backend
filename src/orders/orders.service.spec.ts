@@ -1,4 +1,8 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import { OrderStatus, Role } from '@prisma/client';
 import { OrdersService } from './orders.service';
 
@@ -60,7 +64,10 @@ describe('OrdersService', () => {
         acceptedAt: expect.any(Date),
       }),
     });
-    expect(eventsGateway.emitOrderStatusChange).toHaveBeenCalledWith('order-1', 'ACCEPTED');
+    expect(eventsGateway.emitOrderStatusChange).toHaveBeenCalledWith(
+      'order-1',
+      'ACCEPTED',
+    );
     expect(result).toBe(updatedOrder);
   });
 
@@ -117,7 +124,10 @@ describe('OrdersService', () => {
       restaurant: { managerId: 'manager-1' },
     });
 
-    prisma.order.update.mockResolvedValue({ id: 'order-1', status: 'PICKED_UP' });
+    prisma.order.update.mockResolvedValue({
+      id: 'order-1',
+      status: 'PICKED_UP',
+    });
 
     await service.updateStatus('order-1', OrderStatus.PICKED_UP, {
       id: 'manager-1',

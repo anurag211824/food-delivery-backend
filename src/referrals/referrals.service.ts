@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { ApplyReferralDto } from './dto/apply-referral.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WalletsService } from '../wallets/wallets.service';
@@ -10,7 +15,7 @@ export class ReferralsService {
     private readonly prisma: PrismaService,
     private readonly walletsService: WalletsService,
     private readonly appConfigService: AppConfigService,
-  ) { }
+  ) {}
 
   async applyReferral(userId: string, dto: ApplyReferralDto) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -25,7 +30,7 @@ export class ReferralsService {
     }
 
     const referrer = await this.prisma.user.findUnique({
-      where: { referralCode: dto.referralCode }
+      where: { referralCode: dto.referralCode },
     });
 
     if (!referrer) {
@@ -36,13 +41,15 @@ export class ReferralsService {
     const policy = await this.appConfigService.getReferralPolicy();
 
     if (!policy.enabled) {
-      throw new BadRequestException('The referral program is currently disabled.');
+      throw new BadRequestException(
+        'The referral program is currently disabled.',
+      );
     }
 
     // ─── Phase 1: Link the users atomically (fast, no wallet calls inside) ────
     await this.prisma.user.update({
       where: { id: userId },
-      data: { referredById: referrer.id }
+      data: { referredById: referrer.id },
     });
 
     // ─── Phase 2: Distribute rewards OUTSIDE the transaction ─────────────────
@@ -67,7 +74,7 @@ export class ReferralsService {
 
     return {
       success: true,
-      message: 'Referral applied successfully. Rewards have been distributed!'
+      message: 'Referral applied successfully. Rewards have been distributed!',
     };
   }
 
@@ -86,7 +93,9 @@ export class ReferralsService {
     }
 
     // Ensure we only ever reward once per user by checking the DB link
-    const newUser = await this.prisma.user.findUnique({ where: { id: newUserId } });
+    const newUser = await this.prisma.user.findUnique({
+      where: { id: newUserId },
+    });
     if (!newUser) return;
 
     // Read live policy from DB — never throw, this is an internal silent method
@@ -103,27 +112,41 @@ export class ReferralsService {
     }
 
     // Only pay out if the referredById matches this referrer (prevents double rewards)
-    const finalUser = await this.prisma.user.findUnique({ where: { id: newUserId } });
+    const finalUser = await this.prisma.user.findUnique({
+      where: { id: newUserId },
+    });
     if (finalUser?.referredById !== referrer.id) return;
 
     // Credit the inviter and the invitee using independent transactions
     // Idempotency: Use unique transaction types and check for existing credits
     if (policy.referrerReward > 0) {
       const referrerReason = `REFERRAL_BONUS_FOR_INVITING_${newUserId}`;
-      const existingReferrerReward = await this.prisma.walletTransaction.findFirst({
-        where: { wallet: { userId: referrer.id }, type: referrerReason },
-      });
+      const existingReferrerReward =
+        await this.prisma.walletTransaction.findFirst({
+          where: { wallet: { userId: referrer.id }, type: referrerReason },
+        });
       if (!existingReferrerReward) {
-        await this.walletsService.addFunds(referrer.id, policy.referrerReward, referrerReason, `Referral bonus of ₹${policy.referrerReward} for inviting a friend`);
+        await this.walletsService.addFunds(
+          referrer.id,
+          policy.referrerReward,
+          referrerReason,
+          `Referral bonus of ₹${policy.referrerReward} for inviting a friend`,
+        );
       }
     }
     if (policy.referredReward > 0) {
       const referredReason = `REFERRAL_BONUS_WELCOME_${newUserId}`;
-      const existingReferredReward = await this.prisma.walletTransaction.findFirst({
-        where: { wallet: { userId: newUserId }, type: referredReason },
-      });
+      const existingReferredReward =
+        await this.prisma.walletTransaction.findFirst({
+          where: { wallet: { userId: newUserId }, type: referredReason },
+        });
       if (!existingReferredReward) {
-        await this.walletsService.addFunds(newUserId, policy.referredReward, referredReason, `Welcome bonus of ₹${policy.referredReward} for joining via referral`);
+        await this.walletsService.addFunds(
+          newUserId,
+          policy.referredReward,
+          referredReason,
+          `Welcome bonus of ₹${policy.referredReward} for joining via referral`,
+        );
       }
     }
   }
@@ -137,9 +160,9 @@ export class ReferralsService {
             id: true,
             name: true,
             createdAt: true,
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
     if (!user) throw new NotFoundException('User not found');
@@ -151,7 +174,7 @@ export class ReferralsService {
       myCode: user.referralCode,
       totalReferrals: user.referrals.length,
       earningsEst: user.referrals.length * policy.referrerReward,
-      referrals: user.referrals
+      referrals: user.referrals,
     };
   }
 }

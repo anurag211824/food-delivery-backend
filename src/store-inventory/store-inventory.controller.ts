@@ -1,10 +1,24 @@
 import {
-  Controller, Get, Post, Patch, Delete,
-  Body, Param, Query, Req, UseGuards, ParseIntPipe,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  Req,
+  UseGuards,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
-  ApiTags, ApiOperation, ApiBearerAuth, ApiResponse,
-  ApiBody, ApiParam, ApiQuery,
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiResponse,
+  ApiBody,
+  ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { StoreInventoryService } from './store-inventory.service';
@@ -27,7 +41,15 @@ export class StoreInventoryController {
   @Post('categories')
   @Roles(Role.STORE_MANAGER, Role.ADMIN)
   @ApiOperation({ summary: '[Store Manager] Create a custom store category' })
-  @ApiBody({ schema: { example: { name: 'Fresh Fruits', image: 'url_to_image', parentCategoryId: 'optional_parent_id' } } })
+  @ApiBody({
+    schema: {
+      example: {
+        name: 'Fresh Fruits',
+        image: 'url_to_image',
+        parentCategoryId: 'optional_parent_id',
+      },
+    },
+  })
   @ApiResponse({ status: 201, description: 'Category created.' })
   async createCategory(@Body() dto: any, @Req() req: AuthenticatedRequest) {
     return this.inventoryService.createCategory(req.user.id, dto);
@@ -48,9 +70,14 @@ export class StoreInventoryController {
 
   @Delete('categories/:id')
   @Roles(Role.STORE_MANAGER, Role.ADMIN)
-  @ApiOperation({ summary: '[Store Manager] Delete a store category and its subcategories' })
+  @ApiOperation({
+    summary: '[Store Manager] Delete a store category and its subcategories',
+  })
   @ApiParam({ name: 'id' })
-  async deleteCategory(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+  async deleteCategory(
+    @Param('id') id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return this.inventoryService.deleteCategory(req.user.id, id);
   }
 
@@ -67,16 +94,35 @@ export class StoreInventoryController {
 
   @Post('global-catalog')
   @Roles(Role.STORE_MANAGER, Role.ADMIN)
-  @ApiOperation({ summary: '[Store Manager/Admin] Register a new product globally' })
-  @ApiBody({ schema: { example: { name: 'Coca Cola 250ml', brand: 'Coca Cola', weight: '250ml', unit: 'ml', sku: 'COCA-COLA-250ML', barcode: '8901764012219' } } })
+  @ApiOperation({
+    summary: '[Store Manager/Admin] Register a new product globally',
+  })
+  @ApiBody({
+    schema: {
+      example: {
+        name: 'Coca Cola 250ml',
+        brand: 'Coca Cola',
+        weight: '250ml',
+        unit: 'ml',
+        sku: 'COCA-COLA-250ML',
+        barcode: '8901764012219',
+      },
+    },
+  })
   async createGlobalProduct(@Body() dto: any) {
     return this.inventoryService.createGlobalProduct(dto);
   }
 
   @Get('global-catalog/search')
   @Roles(Role.STORE_MANAGER, Role.ADMIN)
-  @ApiOperation({ summary: '[Store Manager] Search items in global product catalog' })
-  @ApiQuery({ name: 'query', required: false, description: 'Search name, brand, SKU or barcode' })
+  @ApiOperation({
+    summary: '[Store Manager] Search items in global product catalog',
+  })
+  @ApiQuery({
+    name: 'query',
+    required: false,
+    description: 'Search name, brand, SKU or barcode',
+  })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async searchGlobalCatalog(
@@ -93,17 +139,33 @@ export class StoreInventoryController {
 
   @Post('items')
   @Roles(Role.STORE_MANAGER, Role.ADMIN)
-  @ApiOperation({ summary: '[Store Manager] Link global product to store inventory' })
-  @ApiBody({ schema: { example: { productId: 'prod_cuid', categoryId: 'cat_cuid', stock: 100, price: 40.00 } } })
-  async addProductToInventory(@Body() dto: any, @Req() req: AuthenticatedRequest) {
+  @ApiOperation({
+    summary: '[Store Manager] Link global product to store inventory',
+  })
+  @ApiBody({
+    schema: {
+      example: {
+        productId: 'prod_cuid',
+        categoryId: 'cat_cuid',
+        stock: 100,
+        price: 40.0,
+      },
+    },
+  })
+  async addProductToInventory(
+    @Body() dto: any,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return this.inventoryService.addProductToInventory(req.user.id, dto);
   }
 
   @Patch('items/:id')
   @Roles(Role.STORE_MANAGER, Role.ADMIN)
-  @ApiOperation({ summary: '[Store Manager] Update stock/price of inventory item' })
+  @ApiOperation({
+    summary: '[Store Manager] Update stock/price of inventory item',
+  })
   @ApiParam({ name: 'id', description: 'Inventory ID' })
-  @ApiBody({ schema: { example: { stock: 120, price: 45.00 } } })
+  @ApiBody({ schema: { example: { stock: 120, price: 45.0 } } })
   async updateInventoryItem(
     @Param('id') id: string,
     @Body() dto: any,
@@ -125,9 +187,15 @@ export class StoreInventoryController {
 
   @Get('items')
   @Roles(Role.STORE_MANAGER, Role.ADMIN)
-  @ApiOperation({ summary: '[Store Manager] List all items in store inventory' })
+  @ApiOperation({
+    summary: '[Store Manager] List all items in store inventory',
+  })
   @ApiQuery({ name: 'categoryId', required: false })
-  @ApiQuery({ name: 'search', required: false, description: 'Search by product name or brand' })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    description: 'Search by product name or brand',
+  })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   async getStoreInventory(

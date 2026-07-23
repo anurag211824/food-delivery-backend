@@ -13,11 +13,11 @@ logger.log(`Connecting to ${dbHost}:${dbPort}`);
 
 export const pool = new Pool({
   connectionString: dbUrl,
-  port: dbPort,                 // Explicitly set port to fix "port: undefined" issues
-  max: 15,                      // Neon Free Tier safe limit
-  idleTimeoutMillis: 30000,     // Close idle connections after 30s
+  port: dbPort, // Explicitly set port to fix "port: undefined" issues
+  max: 15, // Neon Free Tier safe limit
+  idleTimeoutMillis: 30000, // Close idle connections after 30s
   connectionTimeoutMillis: 10000, // Wait up to 10s for a new connection
-  keepAlive: true,              // Prevent Neon from killing idle sockets
+  keepAlive: true, // Prevent Neon from killing idle sockets
 });
 
 const prismaAdapter = new PrismaPg(pool);

@@ -4,7 +4,10 @@ import { Type } from 'class-transformer'; // 👈 Add this import
 import { PaginationDto } from 'src/common/pagination.dto';
 
 export class SearchRestaurantsDto extends PaginationDto {
-  @ApiPropertyOptional({ example: 'Paneer', description: 'Search by restaurant or dish name' })
+  @ApiPropertyOptional({
+    example: 'Paneer',
+    description: 'Search by restaurant or dish name',
+  })
   @IsString()
   @IsOptional()
   query?: string;
@@ -22,23 +25,37 @@ export class SearchRestaurantsDto extends PaginationDto {
   @Max(5)
   minRating?: number;
 
-  @ApiPropertyOptional({ example: 'rating', enum: ['rating', 'costForTwo', 'deliveryTime'], description: 'Sort criteria' })
+  @ApiPropertyOptional({
+    example: 'rating',
+    enum: ['rating', 'costForTwo', 'deliveryTime'],
+    description: 'Sort criteria',
+  })
   @IsString()
   @IsOptional()
   sortBy?: 'rating' | 'costForTwo' | 'deliveryTime';
 
-  @ApiPropertyOptional({ example: 'desc', enum: ['asc', 'desc'], description: 'Sort order' })
+  @ApiPropertyOptional({
+    example: 'desc',
+    enum: ['asc', 'desc'],
+    description: 'Sort order',
+  })
   @IsString()
   @IsOptional()
   sortOrder?: 'asc' | 'desc';
 
-  @ApiPropertyOptional({ example: 12.9716, description: 'User latitude for delivery time sorting' })
+  @ApiPropertyOptional({
+    example: 12.9716,
+    description: 'User latitude for delivery time sorting',
+  })
   @Type(() => Number)
   @IsNumber()
   @IsOptional()
   userLat?: number;
 
-  @ApiPropertyOptional({ example: 77.5946, description: 'User longitude for delivery time sorting' })
+  @ApiPropertyOptional({
+    example: 77.5946,
+    description: 'User longitude for delivery time sorting',
+  })
   @Type(() => Number)
   @IsNumber()
   @IsOptional()

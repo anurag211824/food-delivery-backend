@@ -1,10 +1,24 @@
 import {
-  Controller, Get, Post, Patch, Delete,
-  Body, Param, Query, Req, UseGuards, ParseIntPipe,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  Req,
+  UseGuards,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
-  ApiTags, ApiOperation, ApiBearerAuth, ApiResponse,
-  ApiBody, ApiParam, ApiQuery,
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiResponse,
+  ApiBody,
+  ApiParam,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { PickerStatus, Role } from '@prisma/client';
 import { StoreManagementService } from './store-management.service';
@@ -12,13 +26,17 @@ import { AuthGuard } from '../auth/auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import type { AuthenticatedRequest } from '../auth/auth.types';
+import { GetStatsDto } from '../restaurants/dto/get-stats.dto';
+import { DashboardQueryDto } from '../restaurants/dto/dashboard-query.dto';
 
 @ApiTags('Store Management (Instamart)')
 @ApiBearerAuth()
 @UseGuards(AuthGuard, RolesGuard)
 @Controller('api/store-management')
 export class StoreManagementController {
-  constructor(private readonly storeManagementService: StoreManagementService) {}
+  constructor(
+    private readonly storeManagementService: StoreManagementService,
+  ) {}
 
   // ═══════════════════════════════════════════════════════════════
   // STORE MANAGER ENDPOINTS
@@ -49,7 +67,11 @@ export class StoreManagementController {
     @Param('pickerId') pickerId: string,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.storeManagementService.removePicker(storeId, pickerId, req.user.id);
+    return this.storeManagementService.removePicker(
+      storeId,
+      pickerId,
+      req.user.id,
+    );
   }
 
   @Get(':storeId/pickers')
@@ -66,7 +88,9 @@ export class StoreManagementController {
 
   @Get(':storeId/dashboard')
   @Roles(Role.STORE_MANAGER, Role.ADMIN)
-  @ApiOperation({ summary: '[Store Manager] Get live store dashboard with picker stats' })
+  @ApiOperation({
+    summary: '[Store Manager] Get live store dashboard with picker stats',
+  })
   @ApiParam({ name: 'storeId' })
   @ApiResponse({ status: 200, description: 'Store dashboard overview' })
   async getDashboard(
@@ -78,21 +102,41 @@ export class StoreManagementController {
 
   @Post(':storeId/pickers/create')
   @Roles(Role.STORE_MANAGER, Role.ADMIN)
-  @ApiOperation({ summary: '[Store Manager] Create a new picker user account and link to store (IAM-style)' })
+  @ApiOperation({
+    summary:
+      '[Store Manager] Create a new picker user account and link to store (IAM-style)',
+  })
   @ApiParam({ name: 'storeId', description: 'The dark store ID' })
-  @ApiBody({ schema: { example: { name: 'Rahul', email: 'rahul@instamart.com', password: 'securePassword123' } } })
-  @ApiResponse({ status: 201, description: 'Picker account created and linked successfully.' })
+  @ApiBody({
+    schema: {
+      example: {
+        name: 'Rahul',
+        email: 'rahul@instamart.com',
+        password: 'securePassword123',
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Picker account created and linked successfully.',
+  })
   async createPicker(
     @Param('storeId') storeId: string,
     @Body() dto: any,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.storeManagementService.createPickerWithCredentials(storeId, req.user.id, dto);
+    return this.storeManagementService.createPickerWithCredentials(
+      storeId,
+      req.user.id,
+      dto,
+    );
   }
 
   @Get('my-store')
   @Roles(Role.STORE_MANAGER)
-  @ApiOperation({ summary: '[Store Manager] Fetch details of store managed by logged in user' })
+  @ApiOperation({
+    summary: '[Store Manager] Fetch details of store managed by logged in user',
+  })
   @ApiResponse({ status: 200, description: 'Managed store details.' })
   async getMyStore(@Req() req: AuthenticatedRequest) {
     return this.storeManagementService.getMyStore(req.user.id);
@@ -100,13 +144,22 @@ export class StoreManagementController {
 
   @Patch('my-store/profile')
   @Roles(Role.STORE_MANAGER)
-  @ApiOperation({ summary: '[Store Manager] Update managed store profile details' })
-  @ApiBody({ schema: { example: { name: 'Instamart - Indiranagar', description: 'Faster grocery delivery', address: '123 Main Road', lat: 12.9716, lng: 77.5946 } } })
+  @ApiOperation({
+    summary: '[Store Manager] Update managed store profile details',
+  })
+  @ApiBody({
+    schema: {
+      example: {
+        name: 'Instamart - Indiranagar',
+        description: 'Faster grocery delivery',
+        address: '123 Main Road',
+        lat: 12.9716,
+        lng: 77.5946,
+      },
+    },
+  })
   @ApiResponse({ status: 200, description: 'Store profile updated.' })
-  async updateStoreProfile(
-    @Body() dto: any,
-    @Req() req: AuthenticatedRequest,
-  ) {
+  async updateStoreProfile(@Body() dto: any, @Req() req: AuthenticatedRequest) {
     return this.storeManagementService.updateStoreProfile(req.user.id, dto);
   }
 
@@ -124,8 +177,14 @@ export class StoreManagementController {
 
   @Get('my-store/orders')
   @Roles(Role.STORE_MANAGER)
-  @ApiOperation({ summary: '[Store Manager] View all orders placed at their store' })
-  @ApiQuery({ name: 'status', required: false, description: 'Filter by order status' })
+  @ApiOperation({
+    summary: '[Store Manager] View all orders placed at their store',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    description: 'Filter by order status',
+  })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiResponse({ status: 200, description: 'List of store orders.' })
@@ -135,7 +194,53 @@ export class StoreManagementController {
     @Query('page', new ParseIntPipe({ optional: true })) page = 1,
     @Query('limit', new ParseIntPipe({ optional: true })) limit = 20,
   ) {
-    return this.storeManagementService.getStoreOrders(req.user.id, status, page, limit);
+    return this.storeManagementService.getStoreOrders(
+      req.user.id,
+      status,
+      page,
+      limit,
+    );
+  }
+
+  @Get('stats')
+  @Roles(Role.STORE_MANAGER, Role.ADMIN)
+  @ApiOperation({
+    summary: '[Store Manager] Get full store analytics stats',
+    description:
+      'Returns KPIs with trend comparison (% growth vs previous period), revenue graph, top grocery products, and payment breakdown.',
+  })
+  @ApiResponse({ status: 200, description: 'Store analytics data.' })
+  async getStats(
+    @Query() dto: GetStatsDto,
+    @Req() req: AuthenticatedRequest,
+    @Query('storeId') storeId?: string,
+  ) {
+    return this.storeManagementService.getStoreStats(
+      req.user,
+      dto.period,
+      storeId,
+    );
+  }
+
+  @Get('dashboard-stats')
+  @Roles(Role.STORE_MANAGER, Role.ADMIN)
+  @ApiOperation({
+    summary: '[Store Manager] Get range-filtered store dashboard metrics',
+    description:
+      'Fetch total grocery orders, total revenue, active picking orders, and cancellations for custom date range.',
+  })
+  @ApiResponse({ status: 200, description: 'Store dashboard metrics.' })
+  async getDashboardStats(
+    @Query() query: DashboardQueryDto,
+    @Req() req: AuthenticatedRequest,
+    @Query('storeId') storeId?: string,
+  ) {
+    return this.storeManagementService.getStoreDashboardStats(
+      req.user,
+      query.startDate,
+      query.endDate,
+      storeId,
+    );
   }
 
   // ═══════════════════════════════════════════════════════════════

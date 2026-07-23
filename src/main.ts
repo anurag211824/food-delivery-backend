@@ -8,14 +8,28 @@ import { ConfigService } from '@nestjs/config';
 import { RedisIoAdapter } from './redis/redis.io-adapter';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule,{logger: ['error', 'warn','log','debug']});
+  const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'log', 'debug'],
+  });
 
   // 1. CORS Configuration
   app.enableCors({
-    origin: [process.env.CUSTOMER_APP_ORIGIN, process.env.ADMIN_ORIGIN, process.env.RESTAURANT_APP_ORIGIN, process.env.RIDER_APP_ORIGIN, "http://localhost:3000",process.env.STORE_APP_ORIGIN],
+    origin: [
+      process.env.CUSTOMER_APP_ORIGIN,
+      process.env.ADMIN_ORIGIN,
+      process.env.RESTAURANT_APP_ORIGIN,
+      process.env.RIDER_APP_ORIGIN,
+      'http://localhost:3000',
+      process.env.STORE_APP_ORIGIN,
+    ],
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "Cookie", "x-better-auth-token"],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Cookie',
+      'x-better-auth-token',
+    ],
   });
 
   // 2. Global Validation Pipes
@@ -38,7 +52,10 @@ async function bootstrap() {
     .setTitle('Food Delivery API')
     .setDescription('Core API contract for Customers, Restaurants, and Riders')
     .setVersion('1.0')
-    .addTag('Account & Profile', 'User authentication, addresses, and profile management')
+    .addTag(
+      'Account & Profile',
+      'User authentication, addresses, and profile management',
+    )
     .addTag('Discover & Order', 'Restaurant discovery, search, and browsing')
     .addTag('Menu Management', 'Categories and food items management')
     .addTag('Orders', 'Order lifecycle and tracking')

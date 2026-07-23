@@ -115,11 +115,16 @@ export class OrdersController {
   }
 
   @Patch(':id/status')
-  @ApiOperation({ summary: 'Update order status (Manager/Admin Only)' })
+  @ApiOperation({ summary: 'Update order status (Manager/Admin/Picker)' })
   @ApiParam({ name: 'id', description: 'Order CUID' })
   @ApiBody({ type: UpdateOrderStatusDto })
   @UseGuards(RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER, Role.STORE_MANAGER, Role.ADMIN)
+  @Roles(
+    Role.RESTAURANT_MANAGER,
+    Role.STORE_MANAGER,
+    Role.ADMIN,
+    Role.STORE_PICKER,
+  )
   async updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateOrderStatusDto,
