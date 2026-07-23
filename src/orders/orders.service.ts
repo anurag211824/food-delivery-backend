@@ -511,7 +511,14 @@ export class OrdersService {
 
     const merchantManagerId = order.restaurant?.managerId ?? order.store?.managerId;
     // Allow: Admin, merchant manager, or the assigned store picker
-    const isAssignedPicker = actor.role === Role.STORE_PICKER && order.pickerId !== null;
+    let isAssignedPicker = false;
+    if (actor.role === Role.STORE_PICKER && order.pickerId) {
+      const picker = await this.prisma.storePicker.findUnique({ where: { userId: actor.id } });
+      if (picker && order.pickerId === picker.id) {
+        isAssignedPicker = true;
+      }
+    }
+
     if (actor.role !== Role.ADMIN && merchantManagerId !== actor.id && !isAssignedPicker) {
       throw new ForbiddenException("You do not have permission to manage this order.")
     }
@@ -963,6 +970,35 @@ export class OrdersService {
         driver: true,
       }
     });
+
+    // Revert grocery inventory stock if order is GROCERY
+    if (order.type === OrderType.GROCERY && order.storeId) {
+      const orderWithItems = await this.prisma.order.findUnique({
+        where: { id: order.id },
+        include: { items: true },
+      });
+
+      if (orderWithItems && orderWithItems.items) {
+        await this.prisma.$transaction(async (tx) => {
+          for (const item of orderWithItems.items) {
+            if (item.productId && order.storeId) {
+              await tx.storeInventory.updateMany({
+                where: {
+                  storeId: order.storeId,
+                  productId: item.productId,
+                },
+                data: { stock: { increment: item.quantity } },
+              });
+            }
+          }
+        });
+      }
+
+      if (order.pickerId) {
+        this.storeManagementService.releasePickerFromOrder(order.id, order.pickerId)
+          .catch(e => this.logger.error(`Failed to release picker for cancelled order ${order.id}:`, e));
+      }
+    }
 
     if (order.paymentMode === 'WALLET' && order.isPaid) {
       await this.walletsService.addFunds(
