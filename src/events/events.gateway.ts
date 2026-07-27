@@ -43,7 +43,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private prisma: PrismaService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-  ) { }
+  ) {}
 
   // ─── 1. CONNECTION HANDLING ──────────────────────────────────────────────
   async handleConnection(client: Socket) {
@@ -71,7 +71,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // 5. Always join their persistent, unique user room
       const userRoom = `user_${session.user.id}`;
       client.join(userRoom);
-      this.logger.log(`Authenticated client connected & joined room ${userRoom}: ${client.id}`);
+      this.logger.log(
+        `Authenticated client connected & joined room ${userRoom}: ${client.id}`,
+      );
 
       // 6. If user is a RESTAURANT_MANAGER, auto-join them to their restaurant room
       if ((session.user as any).role === 'RESTAURANT_MANAGER') {
@@ -83,14 +85,31 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
           const restaurantRoom = `restaurant_${restaurant.id}`;
           client.join(restaurantRoom);
           client.data.restaurantId = restaurant.id;
-          this.logger.log(`Restaurant manager ${client.id} auto-joined room ${restaurantRoom}`);
+          this.logger.log(
+            `Restaurant manager ${client.id} auto-joined room ${restaurantRoom}`,
+          );
+        }
+      }
+
+      // 6b. If user is a STORE_MANAGER, auto-join them to their store room
+      if ((session.user as any).role === 'STORE_MANAGER') {
+        const store = await this.prisma.store.findUnique({
+          where: { managerId: session.user.id },
+          select: { id: true },
+        });
+        if (store) {
+          const storeRoom = `store_${store.id}`;
+          client.join(storeRoom);
+          client.data.storeId = store.id;
+          this.logger.log(
+            `Store manager ${client.id} auto-joined room ${storeRoom}`,
+          );
         }
       }
 
       // 7. Auto-rejoin active order rooms on reconnect
       //    This handles internet drops, app restarts, and background kills
       await this.rejoinActiveOrderRooms(client, session.user);
-
     } catch (e) {
       this.logger.error('Connection Error:', e);
       client.disconnect();
@@ -118,6 +137,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       where: { id: orderId },
       include: {
         restaurant: { select: { managerId: true } },
+        store: { select: { managerId: true } },
         driver: { select: { userId: true } },
       },
     });
@@ -127,17 +147,24 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     }
 
     const isCustomer = order.customerId === user.id;
-    const isManager = order.restaurant.managerId === user.id;
+    const isManager =
+      order.restaurant?.managerId === user.id ||
+      order.store?.managerId === user.id;
     const isDriver = order.driver?.userId === user.id;
     const isAdmin = user.role === 'ADMIN';
 
     if (!isCustomer && !isManager && !isDriver && !isAdmin) {
-      return { event: 'error', data: 'You are not authorized to track this order' };
+      return {
+        event: 'error',
+        data: 'You are not authorized to track this order',
+      };
     }
 
     const roomName = `order_${orderId}`;
     client.join(roomName);
-    this.logger.log(`Client ${client.id} joined tracking for order: ${orderId}`);
+    this.logger.log(
+      `Client ${client.id} joined tracking for order: ${orderId}`,
+    );
     return { event: 'joined', orderId };
   }
 
@@ -168,12 +195,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       // Security check: Only allow the assigned driver to update the order location
       const order = await this.prisma.order.findUnique({
         where: { id: payload.orderId },
-        include: { driver: true }
+        include: { driver: true },
       });
 
       if (!order || order.driver?.userId !== user.id) {
-        this.logger.warn(`User ${user.id} attempted to spoof location for order ${payload.orderId}`);
-        return { event: 'error', data: 'Unauthorized to update location for this order' };
+        this.logger.warn(
+          `User ${user.id} attempted to spoof location for order ${payload.orderId}`,
+        );
+        return {
+          event: 'error',
+          data: 'Unauthorized to update location for this order',
+        };
       }
 
       const roomName = `order_${payload.orderId}`;
@@ -185,13 +217,19 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // Update Redis Geo index for fast nearest-driver lookups
     if (user?.id) {
       // 1. Update the coordinate in the geo index
-      this.redis.geoadd('driver_locations', payload.lng, payload.lat, user.id)
-        .catch((err) => this.logger.error('Failed to update Redis geo index:', err));
+      this.redis
+        .geoadd('driver_locations', payload.lng, payload.lat, user.id)
+        .catch((err) =>
+          this.logger.error('Failed to update Redis geo index:', err),
+        );
 
       // 2. Refresh a keep-alive key (TTL 10 mins) to track if the driver is still active
       //    This replaces the 'updatedAt' database timestamp for location checks.
-      this.redis.setex(`driver_last_seen:${user.id}`, 600, 'active')
-        .catch((err) => this.logger.error('Failed to update driver keep-alive:', err));
+      this.redis
+        .setex(`driver_last_seen:${user.id}`, 600, 'active')
+        .catch((err) =>
+          this.logger.error('Failed to update driver keep-alive:', err),
+        );
     }
   }
 
@@ -213,6 +251,13 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const restaurantRoom = `restaurant_${restaurantId}`;
     this.server.to(restaurantRoom).emit('new_order', payload);
     this.logger.log(`Emitted new_order to room ${restaurantRoom}`);
+  }
+
+  /** Notify a grocery store's live dashboard about a new incoming order */
+  emitNewOrderToStore(storeId: string, payload: any) {
+    const storeRoom = `store_${storeId}`;
+    this.server.to(storeRoom).emit('new_order', payload);
+    this.logger.log(`Emitted new_order to room ${storeRoom}`);
   }
 
   /** Notify the order room that a driver has been assigned */
@@ -249,12 +294,21 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     // Find all sockets in the user's private room and add them to the order room
     const userSockets = this.server.in(userRoom).fetchSockets();
-    userSockets.then(sockets => {
-      for (const socket of sockets) {
-        socket.join(orderRoom);
-        this.logger.log(`Auto-joined user ${userId} (socket ${socket.id}) into ${orderRoom}`);
-      }
-    }).catch(err => this.logger.error(`Failed to auto-join user ${userId} to ${orderRoom}:`, err));
+    userSockets
+      .then((sockets) => {
+        for (const socket of sockets) {
+          socket.join(orderRoom);
+          this.logger.log(
+            `Auto-joined user ${userId} (socket ${socket.id}) into ${orderRoom}`,
+          );
+        }
+      })
+      .catch((err) =>
+        this.logger.error(
+          `Failed to auto-join user ${userId} to ${orderRoom}:`,
+          err,
+        ),
+      );
   }
 
   /**
@@ -268,7 +322,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       for (const socket of sockets) {
         socket.leave(orderRoom);
       }
-      this.logger.log(`Cleaned up room ${orderRoom} — evicted ${sockets.length} socket(s)`);
+      this.logger.log(
+        `Cleaned up room ${orderRoom} — evicted ${sockets.length} socket(s)`,
+      );
     } catch (err) {
       this.logger.error(`Failed to cleanup room ${orderRoom}:`, err);
     }
@@ -283,7 +339,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const role = user.role;
 
     // Terminal statuses — orders in these states don't need tracking rooms
-    const activeFilter = { notIn: ['DELIVERED', 'CANCELLED', 'REFUSED'] as any };
+    const activeFilter = {
+      notIn: ['DELIVERED', 'CANCELLED', 'REFUSED'] as any,
+    };
 
     try {
       let orderIds: string[] = [];
@@ -294,8 +352,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
           where: { customerId: userId, status: activeFilter },
           select: { id: true },
         });
-        orderIds = activeOrders.map(o => o.id);
-
+        orderIds = activeOrders.map((o) => o.id);
       } else if (role === 'DELIVERY_PARTNER') {
         // Driver: Rejoin the order they are currently delivering
         const profile = await this.prisma.driverProfile.findUnique({
@@ -307,9 +364,8 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
             where: { driverId: profile.id, status: activeFilter },
             select: { id: true },
           });
-          orderIds = activeOrders.map(o => o.id);
+          orderIds = activeOrders.map((o) => o.id);
         }
-
       } else if (role === 'RESTAURANT_MANAGER') {
         // Manager: Rejoin all active orders for their restaurant
         const restaurant = await this.prisma.restaurant.findUnique({
@@ -321,7 +377,20 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
             where: { restaurantId: restaurant.id, status: activeFilter },
             select: { id: true },
           });
-          orderIds = activeOrders.map(o => o.id);
+          orderIds = activeOrders.map((o) => o.id);
+        }
+      } else if (role === 'STORE_MANAGER') {
+        // Store Manager: Rejoin all active orders for their dark store
+        const store = await this.prisma.store.findUnique({
+          where: { managerId: userId },
+          select: { id: true },
+        });
+        if (store) {
+          const activeOrders = await this.prisma.order.findMany({
+            where: { storeId: store.id, status: activeFilter },
+            select: { id: true },
+          });
+          orderIds = activeOrders.map((o) => o.id);
         }
       }
 
@@ -332,12 +401,16 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       if (orderIds.length > 0) {
-        this.logger.log(`Reconnect: ${role} ${userId} auto-rejoined ${orderIds.length} active order room(s)`);
+        this.logger.log(
+          `Reconnect: ${role} ${userId} auto-rejoined ${orderIds.length} active order room(s)`,
+        );
       }
-
     } catch (err) {
       // Non-fatal — log and continue. The user can still manually join via the frontend.
-      this.logger.error(`Failed to auto-rejoin active orders for ${userId}:`, err);
+      this.logger.error(
+        `Failed to auto-rejoin active orders for ${userId}:`,
+        err,
+      );
     }
   }
 }

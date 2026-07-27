@@ -4,10 +4,10 @@ import { IEmailProvider } from '../interfaces/email-provider.interface';
 
 /**
  * Resend Email Provider
- * 
+ *
  * API Reference: https://resend.com/docs/api-reference/emails/send
  * Pricing: 100/day, 3,000/month free tier
- * 
+ *
  * Setup:
  * 1. Sign up at https://resend.com
  * 2. Get API key from dashboard
@@ -22,7 +22,10 @@ export class ResendEmailProvider implements IEmailProvider {
 
   constructor(private configService: ConfigService) {
     this.apiKey = configService.get<string>('RESEND_API_KEY', '');
-    this.fromEmail = configService.get<string>('RESEND_FROM_EMAIL', 'noreply@foodapp.com');
+    this.fromEmail = configService.get<string>(
+      'RESEND_FROM_EMAIL',
+      'noreply@foodapp.com',
+    );
   }
 
   async send(to: string, subject: string, html: string): Promise<string> {
@@ -35,7 +38,7 @@ export class ResendEmailProvider implements IEmailProvider {
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.apiKey}`,
+          Authorization: `Bearer ${this.apiKey}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -52,10 +55,12 @@ export class ResendEmailProvider implements IEmailProvider {
         throw new Error(`Resend API error: ${response.status}`);
       }
 
-      const data = await response.json() as any;
+      const data = await response.json();
       const messageId = data?.id;
 
-      this.logger.log(`✅ Email sent successfully via Resend to ${to}. Message ID: ${messageId}`);
+      this.logger.log(
+        `✅ Email sent successfully via Resend to ${to}. Message ID: ${messageId}`,
+      );
       return messageId || 'resend-' + Date.now();
     } catch (error) {
       this.logger.error(`❌ Resend email error for ${to}: ${error}`);

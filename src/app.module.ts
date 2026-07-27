@@ -30,6 +30,9 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { CommunicationsModule } from './communications/communications.module';
 import { DiscoveryModule } from './discovery/discovery.module';
 import { PayoutsModule } from './payouts/payouts.module';
+import { GroceryCatalogModule } from './grocery-catalog/grocery-catalog.module';
+import { StoreManagementModule } from './store-management/store-management.module';
+import { StoreInventoryModule } from './store-inventory/store-inventory.module';
 import { BullModule } from '@nestjs/bullmq';
 import { CacheModule } from '@nestjs/cache-manager';
 import { RedisModule } from './redis/redis.module';
@@ -68,7 +71,7 @@ function getRedisOptions(redisUrl?: string): RedisOptions {
       useFactory: (configService: ConfigService) => ({
         throttlers: [{ ttl: 60000, limit: 100 }],
         storage: new ThrottlerStorageRedisService(
-          new Redis(getRedisOptions(configService.get<string>('REDIS_URL')))
+          new Redis(getRedisOptions(configService.get<string>('REDIS_URL'))),
         ),
       }),
     }),
@@ -89,7 +92,8 @@ function getRedisOptions(redisUrl?: string): RedisOptions {
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const redisUrl = configService.get<string>('REDIS_URL') || 'redis://127.0.0.1:6379';
+        const redisUrl =
+          configService.get<string>('REDIS_URL') || 'redis://127.0.0.1:6379';
         return {
           // store expects a keyv adapter or similar in v6; using createKeyv is correct for @keyv/redis
           store: createKeyv(redisUrl),
@@ -98,7 +102,32 @@ function getRedisOptions(redisUrl?: string): RedisOptions {
       },
     }),
     ScheduleModule.forRoot(),
-    RedisModule, AuthModule, RestaurantsModule, PrismaModule, MenuItemsModule, MenuCategoriesModule, AddressesModule, OrdersModule, DeliveryModule, PaymentsModule, WalletsModule, EventsModule, ReviewsModule, ReferralsModule, AppConfigModule, AdminModule, PartnerRequestsModule, CouponsModule, NotificationsModule, CommunicationsModule, DiscoveryModule, PayoutsModule],
+    RedisModule,
+    AuthModule,
+    RestaurantsModule,
+    PrismaModule,
+    MenuItemsModule,
+    MenuCategoriesModule,
+    AddressesModule,
+    OrdersModule,
+    DeliveryModule,
+    PaymentsModule,
+    WalletsModule,
+    EventsModule,
+    ReviewsModule,
+    ReferralsModule,
+    AppConfigModule,
+    AdminModule,
+    PartnerRequestsModule,
+    CouponsModule,
+    NotificationsModule,
+    CommunicationsModule,
+    DiscoveryModule,
+    PayoutsModule,
+    GroceryCatalogModule,
+    StoreManagementModule,
+    StoreInventoryModule,
+  ],
   controllers: [AppController],
   providers: [
     AppService,
@@ -106,7 +135,7 @@ function getRedisOptions(redisUrl?: string): RedisOptions {
     {
       provide: APP_GUARD,
       useClass: WhitelistThrottlerGuard,
-    }
+    },
   ],
 })
 export class AppModule implements NestModule {
@@ -114,4 +143,3 @@ export class AppModule implements NestModule {
     consumer.apply(LoggerMiddleware).forRoutes('*');
   }
 }
-

@@ -7,9 +7,13 @@ import { WalletsModule } from '../wallets/wallets.module';
 import { PayoutsModule } from '../payouts/payouts.module';
 
 @Module({
-    imports: [NotificationsModule, CommunicationsModule, WalletsModule, PayoutsModule],
-    controllers: [AdminController],
-    providers: [AdminService],
+  imports: [
+    NotificationsModule,
+    CommunicationsModule,
+    WalletsModule,
+    PayoutsModule,
+  ],
+  controllers: [AdminController],
+  providers: [AdminService],
 })
-export class AdminModule { }
-
+export class AdminModule {}

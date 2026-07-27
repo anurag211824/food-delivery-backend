@@ -1,5 +1,19 @@
-import { Controller, Get, Post, Body, Delete, UseGuards, Req } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiBody } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Delete,
+  UseGuards,
+  Req,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiResponse,
+  ApiBody,
+} from '@nestjs/swagger';
 import { DiscoveryService } from './discovery.service';
 import { AuthGuard } from '../auth/auth.guard';
 import type { AuthenticatedRequest } from '../auth/auth.types';
@@ -12,9 +26,13 @@ export class DiscoveryController {
   @Get('cuisines')
   @ApiOperation({
     summary: 'Get all active cuisines',
-    description: 'Returns a list of cuisines/categories for the "What\'s on your mind" section.'
+    description:
+      'Returns a list of cuisines/categories for the "What\'s on your mind" section.',
   })
-  @ApiResponse({ status: 200, description: 'List of cuisines returned successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'List of cuisines returned successfully',
+  })
   async getCuisines() {
     return this.discoveryService.getCuisines();
   }
@@ -23,10 +41,13 @@ export class DiscoveryController {
   @UseGuards(AuthGuard)
   @Get('recent-searches')
   @ApiOperation({
-    summary: 'Get user\'s recent searches',
-    description: 'Returns the last 10 search queries for the logged-in user.'
+    summary: "Get user's recent searches",
+    description: 'Returns the last 10 search queries for the logged-in user.',
   })
-  @ApiResponse({ status: 200, description: 'Recent searches returned successfully' })
+  @ApiResponse({
+    status: 200,
+    description: 'Recent searches returned successfully',
+  })
   @ApiResponse({ status: 401, description: 'Not authenticated' })
   async getRecentSearches(@Req() req: AuthenticatedRequest) {
     return this.discoveryService.getRecentSearches(req.user.id);
@@ -37,11 +58,14 @@ export class DiscoveryController {
   @Post('recent-searches')
   @ApiOperation({
     summary: 'Save a search query',
-    description: 'Adds a query to the user\'s recent search history.'
+    description: "Adds a query to the user's recent search history.",
   })
   @ApiBody({ schema: { example: { query: 'Pizza' } } })
   @ApiResponse({ status: 201, description: 'Search query saved' })
-  async addRecentSearch(@Body('query') query: string, @Req() req: AuthenticatedRequest) {
+  async addRecentSearch(
+    @Body('query') query: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return this.discoveryService.addRecentSearch(req.user.id, query);
   }
 
@@ -50,7 +74,7 @@ export class DiscoveryController {
   @Delete('recent-searches')
   @ApiOperation({
     summary: 'Clear all recent searches',
-    description: 'Deletes all search history for the logged-in user.'
+    description: 'Deletes all search history for the logged-in user.',
   })
   @ApiResponse({ status: 200, description: 'History cleared' })
   async clearRecentSearches(@Req() req: AuthenticatedRequest) {
@@ -60,7 +84,8 @@ export class DiscoveryController {
   @Get('menu-items')
   @ApiOperation({
     summary: 'Get all menu items with restaurant IDs',
-    description: 'Returns a list of menu items with images and their corresponding restaurant IDs for the search page.'
+    description:
+      'Returns a list of menu items with images and their corresponding restaurant IDs for the search page.',
   })
   @ApiResponse({ status: 200, description: 'Menu items returned successfully' })
   async getMenuItems() {

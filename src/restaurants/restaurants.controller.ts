@@ -1,5 +1,25 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Req, Query, UseInterceptors } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth, ApiResponse, ApiBody, ApiParam, ApiQuery } from '@nestjs/swagger';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  UseGuards,
+  Req,
+  Query,
+  UseInterceptors,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiResponse,
+  ApiBody,
+  ApiParam,
+  ApiQuery,
+} from '@nestjs/swagger';
 import { CacheInterceptor } from '@nestjs/cache-manager';
 import { RestaurantsService } from './restaurants.service';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
@@ -41,18 +61,34 @@ const RestaurantExample = {
 @ApiTags('Discover & Order')
 @Controller('api/restaurants')
 export class RestaurantsController {
-  constructor(private readonly restaurantsService: RestaurantsService) { }
+  constructor(private readonly restaurantsService: RestaurantsService) {}
 
   // ─── PUBLIC: SEARCH ───────────────────────────────────────────────────────
   @UseInterceptors(CacheInterceptor)
   @Get('search')
   @ApiOperation({
     summary: 'Search restaurants & dishes with advanced sorting',
-    description: 'Search by restaurant name, dish name, or popular items. Filter by food type (VEG/NON_VEG) and minimum rating. You can also sort by `rating`, `costForTwo`, or `deliveryTime`. If sorting by deliveryTime, you must provide `userLat` and `userLng`.'
+    description:
+      'Search by restaurant name, dish name, or popular items. Filter by food type (VEG/NON_VEG) and minimum rating. You can also sort by `rating`, `costForTwo`, or `deliveryTime`. If sorting by deliveryTime, you must provide `userLat` and `userLng`.',
   })
-  @ApiQuery({ name: 'query', required: false, example: 'Paneer', description: 'Restaurant or dish name' })
-  @ApiQuery({ name: 'type', required: false, enum: ['VEG', 'NON_VEG'], description: 'Filter by food type' })
-  @ApiQuery({ name: 'minRating', required: false, example: 4.0, description: 'Minimum rating (0–5)' })
+  @ApiQuery({
+    name: 'query',
+    required: false,
+    example: 'Paneer',
+    description: 'Restaurant or dish name',
+  })
+  @ApiQuery({
+    name: 'type',
+    required: false,
+    enum: ['VEG', 'NON_VEG'],
+    description: 'Filter by food type',
+  })
+  @ApiQuery({
+    name: 'minRating',
+    required: false,
+    example: 4.0,
+    description: 'Minimum rating (0–5)',
+  })
   @ApiResponse({
     status: 200,
     description: 'Matching dishes grouped by name',
@@ -73,7 +109,7 @@ export class RestaurantsController {
               prepTime: 25,
               isAvailable: true,
               avgPrice: 340.0,
-              popularChoice: true
+              popularChoice: true,
             },
             restaurants: [
               {
@@ -86,13 +122,13 @@ export class RestaurantsController {
                 menuItemId: 'mi_0123',
                 price: 350.0,
                 isBestseller: true,
-                estimatedDelivery: '35-40 mins'
-              }
-            ]
-          }
-        ]
-      }
-    }
+                estimatedDelivery: '35-40 mins',
+              },
+            ],
+          },
+        ],
+      },
+    },
   })
   async search(@Query() dto: SearchRestaurantsDto) {
     return this.restaurantsService.search(dto);
@@ -103,12 +139,13 @@ export class RestaurantsController {
   @Get()
   @ApiOperation({
     summary: 'List all restaurants',
-    description: 'Returns all active restaurants. Used for the home screen listing with name, rating, and cuisine type.'
+    description:
+      'Returns all active restaurants. Used for the home screen listing with name, rating, and cuisine type.',
   })
   @ApiResponse({
     status: 200,
     description: 'List of restaurants',
-    schema: { example: [RestaurantExample] }
+    schema: { example: [RestaurantExample] },
   })
   async findAll(@Query() dto: ListRestaurantsDto) {
     return this.restaurantsService.findAll(dto);
@@ -121,15 +158,15 @@ export class RestaurantsController {
   @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Get Restaurant Stats (Manager Only)',
-    description: 'Full analytics: KPIs with trend comparison, revenue chart, top items, payment breakdown, and ratings.'
+    description:
+      'Full analytics: KPIs with trend comparison, revenue chart, top items, payment breakdown, and ratings.',
   })
   @ApiResponse({ status: 200, description: 'Stats data' })
   async getStats(
     @Query() dto: GetStatsDto,
     @Req() req: AuthenticatedRequest,
-    @Query('restaurantId') restaurantId?: string
   ) {
-    return this.restaurantsService.getStats(req.user, dto.period, restaurantId);
+    return this.restaurantsService.getStats(req.user, dto.period, dto.restaurantId);
   }
 
   // ─── MANAGER: DASHBOARD ───────────────────────────────────────────────────
@@ -139,20 +176,28 @@ export class RestaurantsController {
   @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Get Restaurant Dashboard Analytics (Manager Only)',
-    description: 'Fetch total orders, revenue, and active orders. By default returns today\'s data, but accepts optional `startDate` and `endDate` query parameters for custom ranges.'
+    description:
+      "Fetch total orders, revenue, and active orders. By default returns today's data, but accepts optional `startDate` and `endDate` query parameters for custom ranges.",
   })
   @ApiResponse({
     status: 200,
     description: 'Dashboard metrics',
   })
   @ApiResponse({ status: 401, description: 'Not authenticated' })
-  @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER role' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden — requires RESTAURANT_MANAGER role',
+  })
   async getDashboard(
     @Query() query: DashboardQueryDto,
     @Req() req: AuthenticatedRequest,
-    @Query('restaurantId') restaurantId?: string
   ) {
-    return this.restaurantsService.getDashboardStats(req.user, query.startDate, query.endDate, restaurantId);
+    return this.restaurantsService.getDashboardStats(
+      req.user,
+      query.startDate,
+      query.endDate,
+      query.restaurantId,
+    );
   }
 
   // ─── MANAGER: GET MY RESTAURANT ───────────────────────────────────────────
@@ -162,18 +207,25 @@ export class RestaurantsController {
   @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Get my restaurant details',
-    description: 'Returns the full detail page for the restaurant belonging to the currently logged in manager.'
+    description:
+      'Returns the full detail page for the restaurant belonging to the currently logged in manager.',
   })
   @ApiResponse({
     status: 200,
     description: 'Restaurant detail with full menu',
   })
   @ApiResponse({ status: 401, description: 'Not authenticated' })
-  @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER role' })
-  @ApiResponse({ status: 404, description: 'You do not possess a registered restaurant profile.' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden — requires RESTAURANT_MANAGER role',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'You do not possess a registered restaurant profile.',
+  })
   async findMyRestaurant(
     @Req() req: AuthenticatedRequest,
-    @Query('restaurantId') restaurantId?: string
+    @Query('restaurantId') restaurantId?: string,
   ) {
     return this.restaurantsService.findMyRestaurant(req.user, restaurantId);
   }
@@ -185,19 +237,20 @@ export class RestaurantsController {
   @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Get Restaurant Settlements (Manager Only)',
-    description: 'Returns a paginated list of all nightly settlements for this restaurant.'
+    description:
+      'Returns a paginated list of all nightly settlements for this restaurant.',
   })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
   async getMySettlements(
     @Query('page') page = '1',
     @Query('limit') limit = '20',
-    @Req() req: AuthenticatedRequest
+    @Req() req: AuthenticatedRequest,
   ) {
     return this.restaurantsService.getMySettlements(
       req.user,
       Math.max(1, parseInt(page, 10)),
-      Math.min(100, Math.max(1, parseInt(limit, 10)))
+      Math.min(100, Math.max(1, parseInt(limit, 10))),
     );
   }
 
@@ -206,13 +259,14 @@ export class RestaurantsController {
   @Get(':id')
   @ApiOperation({
     summary: 'Get restaurant details',
-    description: 'Returns the full detail page for a restaurant including all menu categories and items.'
+    description:
+      'Returns the full detail page for a restaurant including all menu categories and items.',
   })
   @ApiParam({ name: 'id', example: 'clxyz789', description: 'Restaurant ID' })
   @ApiResponse({
     status: 200,
     description: 'Restaurant detail with full menu',
-    schema: { example: { ...RestaurantExample, menuCategories: [] } }
+    schema: { example: { ...RestaurantExample, menuCategories: [] } },
   })
   @ApiResponse({ status: 404, description: 'Restaurant not found' })
   async findOne(@Param('id') id: string) {
@@ -226,19 +280,23 @@ export class RestaurantsController {
   @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Register a restaurant',
-    description: 'Create a new restaurant profile. Only users with `RESTAURANT_MANAGER` or `ADMIN` role can do this.'
+    description:
+      'Create a new restaurant profile. Only users with `RESTAURANT_MANAGER` or `ADMIN` role can do this.',
   })
   @ApiBody({ type: CreateRestaurantDto })
   @ApiResponse({
     status: 201,
     description: 'Restaurant created successfully',
-    schema: { example: RestaurantExample }
+    schema: { example: RestaurantExample },
   })
   @ApiResponse({ status: 401, description: 'Not authenticated' })
-  @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER or ADMIN role' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden — requires RESTAURANT_MANAGER or ADMIN role',
+  })
   async create(
     @Body() dto: CreateRestaurantDto,
-    @Req() req: AuthenticatedRequest
+    @Req() req: AuthenticatedRequest,
   ): Promise<Restaurant> {
     return this.restaurantsService.create(dto, req.user);
   }
@@ -250,19 +308,31 @@ export class RestaurantsController {
   @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   @ApiOperation({
     summary: 'Update restaurant profile',
-    description: 'Edit any restaurant details such as logo, description, timing flags, or contact info. All fields are optional.'
+    description:
+      'Edit any restaurant details such as logo, description, timing flags, or contact info. All fields are optional.',
   })
-  @ApiParam({ name: 'id', example: 'clxyz789', description: 'Restaurant ID to update' })
+  @ApiParam({
+    name: 'id',
+    example: 'clxyz789',
+    description: 'Restaurant ID to update',
+  })
   @ApiBody({ type: UpdateRestaurantDto })
   @ApiResponse({
     status: 200,
     description: 'Restaurant updated successfully',
-    schema: { example: RestaurantExample }
+    schema: { example: RestaurantExample },
   })
   @ApiResponse({ status: 401, description: 'Not authenticated' })
-  @ApiResponse({ status: 403, description: 'Forbidden — requires RESTAURANT_MANAGER or ADMIN role' })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden — requires RESTAURANT_MANAGER or ADMIN role',
+  })
   @ApiResponse({ status: 404, description: 'Restaurant not found' })
-  async update(@Param('id') id: string, @Body() updateDto: UpdateRestaurantDto, @Req() req: AuthenticatedRequest) {
+  async update(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateRestaurantDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
     return this.restaurantsService.update(id, updateDto, req.user);
   }
 
@@ -273,13 +343,18 @@ export class RestaurantsController {
   @Roles(Role.ADMIN)
   @ApiOperation({
     summary: 'Delete a restaurant',
-    description: 'Permanently removes a restaurant and all its data. Admin only.'
+    description:
+      'Permanently removes a restaurant and all its data. Admin only.',
   })
-  @ApiParam({ name: 'id', example: 'clxyz789', description: 'Restaurant ID to delete' })
+  @ApiParam({
+    name: 'id',
+    example: 'clxyz789',
+    description: 'Restaurant ID to delete',
+  })
   @ApiResponse({
     status: 200,
     description: 'Restaurant deleted successfully',
-    schema: { example: { message: 'Restaurant deleted' } }
+    schema: { example: { message: 'Restaurant deleted' } },
   })
   @ApiResponse({ status: 401, description: 'Not authenticated' })
   @ApiResponse({ status: 403, description: 'Forbidden — requires ADMIN role' })

@@ -7,7 +7,10 @@ import { ConfigService } from '@nestjs/config';
 export class RedisIoAdapter extends IoAdapter {
   private adapterConstructor: ReturnType<typeof createAdapter>;
 
-  constructor(app: any, private configService: ConfigService) {
+  constructor(
+    app: any,
+    private configService: ConfigService,
+  ) {
     super(app);
   }
 

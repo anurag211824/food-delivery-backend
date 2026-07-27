@@ -10,7 +10,7 @@ import { CommunicationChannel, CommunicationStatus } from '@prisma/client';
 
 /**
  * Communications Service
- * 
+ *
  * Orchestrates SMS and Email delivery through queued jobs.
  * Uses BullMQ for reliable job processing with retries.
  */

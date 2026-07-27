@@ -1,4 +1,10 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException, Inject } from '@nestjs/common';
+import {
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  Inject,
+} from '@nestjs/common';
 import { CreateRestaurantDto } from './dto/create-restaurant.dto';
 import { UpdateRestaurantDto } from './dto/update-restaurant.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -14,20 +20,24 @@ import type { Cache } from 'cache-manager';
 export class RestaurantsService {
   constructor(
     private prisma: PrismaService,
-    @Inject(CACHE_MANAGER) private cacheManager: Cache
-  ) { }
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+  ) {}
 
-  async create(createRestaurantDto: CreateRestaurantDto, user: { id: string, role: string }): Promise<Restaurant> {
-    const targetManagerId = (user.role === 'ADMIN' && createRestaurantDto.managerId)
-      ? createRestaurantDto.managerId
-      : user.id;
+  async create(
+    createRestaurantDto: CreateRestaurantDto,
+    user: { id: string; role: string },
+  ): Promise<Restaurant> {
+    const targetManagerId =
+      user.role === 'ADMIN' && createRestaurantDto.managerId
+        ? createRestaurantDto.managerId
+        : user.id;
 
     const existing = await this.prisma.restaurant.findUnique({
-      where: { managerId: targetManagerId }
+      where: { managerId: targetManagerId },
     });
 
     if (existing) {
-      throw new ConflictException("Manager already has a restaurant");
+      throw new ConflictException('Manager already has a restaurant');
     }
 
     // Extract managerId from dto to avoid prisma error if it's passed but not expected in data spread
@@ -40,19 +50,26 @@ export class RestaurantsService {
         isActive: true,
         isOpen: true,
         isVerified: user.role === 'ADMIN', // Auto-verify if admin creates it
-      }
+      },
     });
   }
 
   // Helper function to calculate distance in km between two coordinates
-  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  private calculateDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number {
     const R = 6371; // Radius of the earth in km
     const dLat = this.deg2rad(lat2 - lat1);
     const dLon = this.deg2rad(lon2 - lon1);
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(this.deg2rad(lat1)) * Math.cos(this.deg2rad(lat2)) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      Math.cos(this.deg2rad(lat1)) *
+        Math.cos(this.deg2rad(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   }
@@ -63,7 +80,17 @@ export class RestaurantsService {
 
   // 1. PUBLIC SEARCH LOGIC (Grouped by Dishes)
   async search(dto: SearchRestaurantsDto) {
-    const { query, type, minRating, sortBy, sortOrder, userLat, userLng, page, limit } = dto;
+    const {
+      query,
+      type,
+      minRating,
+      sortBy,
+      sortOrder,
+      userLat,
+      userLng,
+      page,
+      limit,
+    } = dto;
 
     const pageNumber = page || 1;
     const limitNumber = limit || 10;
@@ -79,16 +106,28 @@ export class RestaurantsService {
           },
         },
         AND: [
-          query ? {
-            OR: [
-              { name: { contains: query, mode: 'insensitive' } },
-              { description: { contains: query, mode: 'insensitive' } },
-              { category: { name: { contains: query, mode: 'insensitive' } } },
-              { category: { restaurant: { name: { contains: query, mode: 'insensitive' } } } },
-            ]
-          } : {},
+          query
+            ? {
+                OR: [
+                  { name: { contains: query, mode: 'insensitive' } },
+                  { description: { contains: query, mode: 'insensitive' } },
+                  {
+                    category: {
+                      name: { contains: query, mode: 'insensitive' },
+                    },
+                  },
+                  {
+                    category: {
+                      restaurant: {
+                        name: { contains: query, mode: 'insensitive' },
+                      },
+                    },
+                  },
+                ],
+              }
+            : {},
           type ? { type: type as VegType } : {},
-        ]
+        ],
       },
       include: {
         variants: {
@@ -98,15 +137,20 @@ export class RestaurantsService {
         category: {
           include: {
             restaurant: true,
-          }
-        }
-      }
+          },
+        },
+      },
     });
 
     let filteredItems = items;
     if (userLat && userLng) {
-      filteredItems = items.filter(item => {
-        const distance = this.calculateDistance(userLat, userLng, item.category.restaurant.lat, item.category.restaurant.lng);
+      filteredItems = items.filter((item) => {
+        const distance = this.calculateDistance(
+          userLat,
+          userLng,
+          item.category.restaurant.lat,
+          item.category.restaurant.lng,
+        );
         return distance <= 7;
       });
     }
@@ -123,74 +167,93 @@ export class RestaurantsService {
       group.push(item);
     }
 
-    const allDishes = Array.from(dishGroups.values()).map(group => {
-      const repItem = group[0];
-      if (!repItem) return null;
-      const restaurants = group.map(item => {
-        const restaurant = item.category.restaurant;
-        let deliveryTime = "30-35 mins";
-        if (userLat && userLng) {
-          const dist = this.calculateDistance(userLat, userLng, restaurant.lat, restaurant.lng);
-          deliveryTime = `${Math.round(15 + (dist * 5))}-${Math.round(20 + (dist * 5))} mins`;
-        }
+    const allDishes = Array.from(dishGroups.values())
+      .map((group) => {
+        const repItem = group[0];
+        if (!repItem) return null;
+        const restaurants = group.map((item) => {
+          const restaurant = item.category.restaurant;
+          let deliveryTime = '30-35 mins';
+          if (userLat && userLng) {
+            const dist = this.calculateDistance(
+              userLat,
+              userLng,
+              restaurant.lat,
+              restaurant.lng,
+            );
+            deliveryTime = `${Math.round(15 + dist * 5)}-${Math.round(20 + dist * 5)} mins`;
+          }
 
-        // Get display price from the default (first) variant
-        const defaultVariant = item.variants?.[0];
-        const displayPrice = defaultVariant ? (defaultVariant.salePrice ?? defaultVariant.price) : 0;
+          // Get display price from the default (first) variant
+          const defaultVariant = item.variants?.[0];
+          const displayPrice = defaultVariant
+            ? (defaultVariant.salePrice ?? defaultVariant.price)
+            : 0;
+
+          return {
+            restaurantId: restaurant.id,
+            name: restaurant.name,
+            logo: restaurant.logo,
+            rating: restaurant.rating,
+            ratingCount: restaurant.ratingCount,
+            costForTwo: restaurant.costForTwo,
+            menuItemId: item.id,
+            price: displayPrice,
+            isBestseller: item.isBestseller,
+            estimatedDelivery: deliveryTime,
+          };
+        });
+
+        const avgPrice =
+          group.reduce((sum, item) => {
+            const v = item.variants?.[0];
+            return sum + (v ? (v.salePrice ?? v.price) : 0);
+          }, 0) / group.length;
+        const popularChoice = group.some((item) => item.isBestseller);
 
         return {
-          restaurantId: restaurant.id,
-          name: restaurant.name,
-          logo: restaurant.logo,
-          rating: restaurant.rating,
-          ratingCount: restaurant.ratingCount,
-          costForTwo: restaurant.costForTwo,
-          menuItemId: item.id,
-          price: displayPrice,
-          isBestseller: item.isBestseller,
-          estimatedDelivery: deliveryTime
+          dishId: `dish_${repItem.name.toLowerCase().replace(/\s+/g, '_')}`,
+          dishName: repItem.name,
+          categoryName: repItem.category.name,
+          dishDetails: {
+            description: repItem.description,
+            image: repItem.image,
+            type: repItem.type,
+            spiceLevel: repItem.spiceLevel,
+            prepTime: repItem.prepTime,
+            isAvailable: repItem.isAvailable,
+            avgPrice: parseFloat(avgPrice.toFixed(2)),
+            popularChoice: popularChoice,
+          },
+          restaurants: restaurants,
         };
-      });
-
-      const avgPrice = group.reduce((sum, item) => {
-        const v = item.variants?.[0];
-        return sum + (v ? (v.salePrice ?? v.price) : 0);
-      }, 0) / group.length;
-      const popularChoice = group.some(item => item.isBestseller);
-
-      return {
-        dishId: `dish_${repItem.name.toLowerCase().replace(/\s+/g, '_')}`,
-        dishName: repItem.name,
-        categoryName: repItem.category.name,
-        dishDetails: {
-          description: repItem.description,
-          image: repItem.image,
-          type: repItem.type,
-          spiceLevel: repItem.spiceLevel,
-          prepTime: repItem.prepTime,
-          isAvailable: repItem.isAvailable,
-          avgPrice: parseFloat(avgPrice.toFixed(2)),
-          popularChoice: popularChoice
-        },
-        restaurants: restaurants
-      };
-    }).filter((dish): dish is NonNullable<typeof dish> => dish !== null);
+      })
+      .filter((dish): dish is NonNullable<typeof dish> => dish !== null);
 
     const effectiveSortBy = sortBy || 'rating';
     const effectiveSortOrder = sortOrder || 'desc';
 
     if (effectiveSortBy === 'rating') {
       allDishes.sort((a, b) => {
-        const ratingA = a.restaurants.reduce((sum, r) => sum + r.rating, 0) / a.restaurants.length;
-        const ratingB = b.restaurants.reduce((sum, r) => sum + r.rating, 0) / b.restaurants.length;
-        return effectiveSortOrder === 'asc' ? ratingA - ratingB : ratingB - ratingA;
+        const ratingA =
+          a.restaurants.reduce((sum, r) => sum + r.rating, 0) /
+          a.restaurants.length;
+        const ratingB =
+          b.restaurants.reduce((sum, r) => sum + r.rating, 0) /
+          b.restaurants.length;
+        return effectiveSortOrder === 'asc'
+          ? ratingA - ratingB
+          : ratingB - ratingA;
       });
-    } else if (effectiveSortBy === 'costForTwo' || effectiveSortBy === 'deliveryTime') {
+    } else if (
+      effectiveSortBy === 'costForTwo' ||
+      effectiveSortBy === 'deliveryTime'
+    ) {
       allDishes.sort((a, b) => {
         let valA, valB;
         if (effectiveSortBy === 'costForTwo') {
-          valA = Math.min(...a.restaurants.map(r => r.costForTwo));
-          valB = Math.min(...b.restaurants.map(r => r.costForTwo));
+          valA = Math.min(...a.restaurants.map((r) => r.costForTwo));
+          valB = Math.min(...b.restaurants.map((r) => r.costForTwo));
         } else {
           valA = parseInt(a.restaurants[0].estimatedDelivery);
           valB = parseInt(b.restaurants[0].estimatedDelivery);
@@ -203,7 +266,7 @@ export class RestaurantsService {
     const paginatedDishes = allDishes.slice(skip, skip + limitNumber);
 
     return {
-      searchTerm: query || "",
+      searchTerm: query || '',
       totalUniqueDishes,
       results: paginatedDishes,
       meta: {
@@ -211,12 +274,15 @@ export class RestaurantsService {
         page: pageNumber,
         limit: limitNumber,
         totalPages: Math.ceil(totalUniqueDishes / limitNumber),
-      }
+      },
     };
   }
 
   // 2. LISTINGS & DETAILS
-  async findMyRestaurant(user: Pick<User, 'id' | 'role'>, restaurantId?: string) {
+  async findMyRestaurant(
+    user: Pick<User, 'id' | 'role'>,
+    restaurantId?: string,
+  ) {
     let where: any = {};
     if (user.role === Role.ADMIN && restaurantId) {
       where = { id: restaurantId };
@@ -235,10 +301,10 @@ export class RestaurantsService {
                 addons: { include: { options: true } },
               },
             },
-          }
+          },
         },
-        reviews: true
-      }
+        reviews: true,
+      },
     });
 
     if (!restaurant) {
@@ -247,13 +313,19 @@ export class RestaurantsService {
     return restaurant;
   }
 
-  async getMySettlements(user: Pick<User, 'id' | 'role'>, page = 1, limit = 20) {
+  async getMySettlements(
+    user: Pick<User, 'id' | 'role'>,
+    page = 1,
+    limit = 20,
+  ) {
     const restaurant = await this.prisma.restaurant.findUnique({
       where: { managerId: user.id },
     });
 
     if (!restaurant) {
-      throw new NotFoundException('You do not possess a registered restaurant profile.');
+      throw new NotFoundException(
+        'You do not possess a registered restaurant profile.',
+      );
     }
 
     const skip = (page - 1) * limit;
@@ -298,14 +370,19 @@ export class RestaurantsService {
         ratingCount: true,
         lat: true,
         lng: true,
-      }
+      },
     });
 
     let filteredData = allActive;
     if (dto.userLat && dto.userLng) {
-      filteredData = allActive.filter(r => {
+      filteredData = allActive.filter((r) => {
         if (!r.lat || !r.lng) return false;
-        const distance = this.calculateDistance(dto.userLat!, dto.userLng!, r.lat, r.lng);
+        const distance = this.calculateDistance(
+          dto.userLat!,
+          dto.userLng!,
+          r.lat,
+          r.lng,
+        );
         return distance <= 7;
       });
     }
@@ -322,7 +399,7 @@ export class RestaurantsService {
         page: pageNumber,
         limit: limitNumber,
         totalPages: Math.ceil(total / limitNumber),
-      }
+      },
     };
   }
 
@@ -338,10 +415,10 @@ export class RestaurantsService {
                 addons: { include: { options: true } },
               },
             },
-          }
+          },
         },
-        reviews: true
-      }
+        reviews: true,
+      },
     });
 
     if (!restaurant) {
@@ -351,20 +428,32 @@ export class RestaurantsService {
   }
 
   // 3. MANAGEMENT TOOLS
-  async update(id: string, dto: UpdateRestaurantDto, actor?: Pick<User, 'id' | 'role'>) {
-    const restaurant = await this.prisma.restaurant.findUnique({ where: { id } });
+  async update(
+    id: string,
+    dto: UpdateRestaurantDto,
+    actor?: Pick<User, 'id' | 'role'>,
+  ) {
+    const restaurant = await this.prisma.restaurant.findUnique({
+      where: { id },
+    });
     if (!restaurant) {
       throw new NotFoundException(`Restaurant ${id} not found`);
     }
 
     // Security: Only the owning manager or an admin can update
-    if (actor && actor.role !== Role.ADMIN && restaurant.managerId !== actor.id) {
-      throw new ForbiddenException('You do not have permission to update this restaurant.');
+    if (
+      actor &&
+      actor.role !== Role.ADMIN &&
+      restaurant.managerId !== actor.id
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to update this restaurant.',
+      );
     }
 
     const updated = await this.prisma.restaurant.update({
       where: { id },
-      data: dto
+      data: dto,
     });
     await this.cacheManager.clear();
     return updated;
@@ -373,14 +462,19 @@ export class RestaurantsService {
   async remove(id: string) {
     const deleted = await this.prisma.restaurant.update({
       where: { id },
-      data: { isActive: false }
+      data: { isActive: false },
     });
     await this.cacheManager.clear();
     return deleted;
   }
 
   // 4. MANAGER DASHBOARD (legacy)
-  async getDashboardStats(user: Pick<User, 'id' | 'role'>, startDate?: Date, endDate?: Date, restaurantId?: string) {
+  async getDashboardStats(
+    user: Pick<User, 'id' | 'role'>,
+    startDate?: Date,
+    endDate?: Date,
+    restaurantId?: string,
+  ) {
     let where: any = {};
     if (user.role === Role.ADMIN && restaurantId) {
       where = { id: restaurantId };
@@ -389,11 +483,13 @@ export class RestaurantsService {
     }
 
     const restaurant = await this.prisma.restaurant.findUnique({
-      where: where
+      where: where,
     });
 
     if (!restaurant) {
-      throw new NotFoundException('You do not have a restaurant associated with your account.');
+      throw new NotFoundException(
+        'You do not have a restaurant associated with your account.',
+      );
     }
 
     let start = startDate;
@@ -411,16 +507,21 @@ export class RestaurantsService {
     const orders = await this.prisma.order.findMany({
       where: {
         restaurantId: restaurant.id,
-        placedAt: { gte: startFilter, lte: endFilter }
+        placedAt: { gte: startFilter, lte: endFilter },
       },
-      select: { status: true, itemTotal: true }
+      select: { status: true, itemTotal: true },
     });
 
     const totalOrders = orders.length;
-    const completedOrders = orders.filter(o => o.status === 'DELIVERED');
-    const cancelledOrders = orders.filter(o => o.status === 'CANCELLED');
-    const activeOrders = orders.filter(o => o.status !== 'DELIVERED' && o.status !== 'CANCELLED');
-    const revenue = completedOrders.reduce((sum, order) => sum + order.itemTotal, 0);
+    const completedOrders = orders.filter((o) => o.status === 'DELIVERED');
+    const cancelledOrders = orders.filter((o) => o.status === 'CANCELLED');
+    const activeOrders = orders.filter(
+      (o) => o.status !== 'DELIVERED' && o.status !== 'CANCELLED',
+    );
+    const revenue = completedOrders.reduce(
+      (sum, order) => sum + order.itemTotal,
+      0,
+    );
 
     return {
       restaurantName: restaurant.name,
@@ -430,13 +531,17 @@ export class RestaurantsService {
         completedOrders: completedOrders.length,
         cancelledOrders: cancelledOrders.length,
         activeOrders: activeOrders.length,
-        revenue
-      }
+        revenue,
+      },
     };
   }
 
   // ─── 5. STATS PAGE API ──────────────────────────────────────────────────────
-  async getStats(user: Pick<User, 'id' | 'role'>, period: StatsPeriod = StatsPeriod.WEEK, restaurantId?: string) {
+  async getStats(
+    user: Pick<User, 'id' | 'role'>,
+    period: StatsPeriod = StatsPeriod.WEEK,
+    restaurantId?: string,
+  ) {
     let where: any = {};
     if (user.role === Role.ADMIN && restaurantId) {
       where = { id: restaurantId };
@@ -445,7 +550,7 @@ export class RestaurantsService {
     }
 
     const restaurant = await this.prisma.restaurant.findUnique({
-      where: where
+      where: where,
     });
     if (!restaurant) throw new NotFoundException('Restaurant not found');
 
@@ -453,33 +558,52 @@ export class RestaurantsService {
 
     const [currentMetrics, previousMetrics] = await Promise.all([
       this.getMetrics(restaurant.id, current.start, current.end),
-      this.getMetrics(restaurant.id, previous.start, previous.end)
+      this.getMetrics(restaurant.id, previous.start, previous.end),
     ]);
 
-    const chartData = await this.getChartData(restaurant.id, current.start, current.end, period);
-    const topItems = await this.getTopItems(restaurant.id, current.start, current.end);
-    const paymentBreakdown = await this.getPaymentBreakdown(restaurant.id, current.start, current.end);
+    const chartData = await this.getChartData(
+      restaurant.id,
+      current.start,
+      current.end,
+      period,
+    );
+    const topItems = await this.getTopItems(
+      restaurant.id,
+      current.start,
+      current.end,
+    );
+    const paymentBreakdown = await this.getPaymentBreakdown(
+      restaurant.id,
+      current.start,
+      current.end,
+    );
     const ratings = await this.getRatingSummary(restaurant.id);
 
     return {
       kpis: {
         revenue: {
           value: Math.round(currentMetrics.revenue * 100) / 100,
-          change: this.calcChange(currentMetrics.revenue, previousMetrics.revenue)
+          change: this.calcChange(
+            currentMetrics.revenue,
+            previousMetrics.revenue,
+          ),
         },
         orders: {
           value: currentMetrics.orders,
-          change: this.calcChange(currentMetrics.orders, previousMetrics.orders)
+          change: this.calcChange(
+            currentMetrics.orders,
+            previousMetrics.orders,
+          ),
         },
         aov: {
           value: Math.round(currentMetrics.aov * 100) / 100,
-          change: this.calcChange(currentMetrics.aov, previousMetrics.aov)
-        }
+          change: this.calcChange(currentMetrics.aov, previousMetrics.aov),
+        },
       },
       chartData,
       topItems,
       paymentBreakdown,
-      ratings
+      ratings,
     };
   }
 
@@ -506,7 +630,10 @@ export class RestaurantsService {
       pe = new Date(cs.getTime() - 1);
     }
 
-    return { current: { start: cs, end: now }, previous: { start: ps, end: pe } };
+    return {
+      current: { start: cs, end: now },
+      previous: { start: ps, end: pe },
+    };
   }
 
   private async getMetrics(restaurantId: string, start: Date, end: Date) {
@@ -514,10 +641,10 @@ export class RestaurantsService {
       where: {
         restaurantId,
         status: 'DELIVERED',
-        placedAt: { gte: start, lte: end }
+        placedAt: { gte: start, lte: end },
       },
       _sum: { itemTotal: true },
-      _count: { id: true }
+      _count: { id: true },
     });
     const revenue = stats._sum.itemTotal || 0;
     const orders = stats._count.id || 0;
@@ -526,46 +653,67 @@ export class RestaurantsService {
 
   private calcChange(cur: number, prev: number) {
     if (prev === 0) return cur > 0 ? 100 : 0;
-    return parseFloat(((cur - prev) / prev * 100).toFixed(1));
+    return parseFloat((((cur - prev) / prev) * 100).toFixed(1));
   }
 
-  private async getChartData(restaurantId: string, start: Date, end: Date, period: StatsPeriod) {
+  private async getChartData(
+    restaurantId: string,
+    start: Date,
+    end: Date,
+    period: StatsPeriod,
+  ) {
     const orders = await this.prisma.order.findMany({
       where: {
-        restaurantId, status: 'DELIVERED',
-        placedAt: { gte: start, lte: end }
+        restaurantId,
+        status: 'DELIVERED',
+        placedAt: { gte: start, lte: end },
       },
-      select: { placedAt: true, itemTotal: true }
+      select: { placedAt: true, itemTotal: true },
     });
 
     const groups: Record<string, number> = {};
-    orders.forEach(o => {
+    orders.forEach((o) => {
       const d = new Date(o.placedAt);
       let key: string;
       if (period === StatsPeriod.TODAY) key = `${d.getHours()}:00`;
-      else if (period === StatsPeriod.WEEK) key = d.toLocaleDateString('en-US', { weekday: 'short' });
-      else if (period === StatsPeriod.MONTH) key = `Week ${Math.ceil(d.getDate() / 7)}`;
+      else if (period === StatsPeriod.WEEK)
+        key = d.toLocaleDateString('en-US', { weekday: 'short' });
+      else if (period === StatsPeriod.MONTH)
+        key = `Week ${Math.ceil(d.getDate() / 7)}`;
       else key = d.toLocaleDateString('en-US', { month: 'short' });
       groups[key] = (groups[key] || 0) + o.itemTotal;
     });
 
     return Object.entries(groups).map(([label, value]) => ({
-      label, value: Math.round(value * 100) / 100
+      label,
+      value: Math.round(value * 100) / 100,
     }));
   }
 
   private async getTopItems(restaurantId: string, start: Date, end: Date) {
     const items = await this.prisma.orderItem.findMany({
       where: {
-        order: { restaurantId, status: 'DELIVERED', placedAt: { gte: start, lte: end } }
+        order: {
+          restaurantId,
+          status: 'DELIVERED',
+          placedAt: { gte: start, lte: end },
+        },
       },
-      include: { menuItem: true }
+      include: { menuItem: true },
     });
 
-    const counts: Record<string, { orders: number; revenue: number; name: string }> = {};
-    items.forEach(item => {
+    const counts: Record<
+      string,
+      { orders: number; revenue: number; name: string }
+    > = {};
+    items.forEach((item) => {
+      if (!item.menuItemId || !item.menuItem) return; // Skip grocery items without menuItemId
       if (!counts[item.menuItemId]) {
-        counts[item.menuItemId] = { orders: 0, revenue: 0, name: item.menuItem.name };
+        counts[item.menuItemId] = {
+          orders: 0,
+          revenue: 0,
+          name: item.menuItem.name,
+        };
       }
       counts[item.menuItemId].orders += item.quantity;
       counts[item.menuItemId].revenue += item.totalPrice;
@@ -574,36 +722,45 @@ export class RestaurantsService {
     return Object.values(counts)
       .sort((a, b) => b.orders - a.orders)
       .slice(0, 5)
-      .map(i => ({ ...i, revenue: Math.round(i.revenue * 100) / 100 }));
+      .map((i) => ({ ...i, revenue: Math.round(i.revenue * 100) / 100 }));
   }
 
-  private async getPaymentBreakdown(restaurantId: string, start: Date, end: Date) {
+  private async getPaymentBreakdown(
+    restaurantId: string,
+    start: Date,
+    end: Date,
+  ) {
     const orders = await this.prisma.order.groupBy({
       by: ['paymentMode'],
       where: {
-        restaurantId, status: 'DELIVERED',
-        placedAt: { gte: start, lte: end }
+        restaurantId,
+        status: 'DELIVERED',
+        placedAt: { gte: start, lte: end },
       },
-      _count: { id: true }
+      _count: { id: true },
     });
     const total = orders.reduce((s, o) => s + o._count.id, 0);
-    return orders.map(o => ({
+    return orders.map((o) => ({
       label: o.paymentMode,
       count: o._count.id,
-      percentage: total > 0 ? Math.round((o._count.id / total) * 100) : 0
+      percentage: total > 0 ? Math.round((o._count.id / total) * 100) : 0,
     }));
   }
 
   private async getRatingSummary(restaurantId: string) {
-    const reviews = await this.prisma.review.findMany({ where: { restaurantId } });
+    const reviews = await this.prisma.review.findMany({
+      where: { restaurantId },
+    });
     const total = reviews.length;
     if (total === 0) return { average: 0, count: 0, breakdown: [] };
 
     const sum = reviews.reduce((s, r) => s + r.foodRating, 0);
     const average = parseFloat((sum / total).toFixed(1));
-    const breakdown = [5, 4, 3, 2, 1].map(stars => ({
+    const breakdown = [5, 4, 3, 2, 1].map((stars) => ({
       stars,
-      percentage: Math.round((reviews.filter(r => r.foodRating === stars).length / total) * 100)
+      percentage: Math.round(
+        (reviews.filter((r) => r.foodRating === stars).length / total) * 100,
+      ),
     }));
 
     return { average, count: total, breakdown };

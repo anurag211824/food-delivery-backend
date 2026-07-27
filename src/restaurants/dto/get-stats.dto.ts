@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsOptional } from 'class-validator';
+import { IsEnum, IsOptional, IsString } from 'class-validator';
 
 export enum StatsPeriod {
   TODAY = 'Today',
@@ -13,4 +13,15 @@ export class GetStatsDto {
   @IsEnum(StatsPeriod)
   @IsOptional()
   period?: StatsPeriod = StatsPeriod.WEEK;
+
+  @ApiPropertyOptional({ description: 'Dark store ID (optional, for Admin or Store Manager)' })
+  @IsString()
+  @IsOptional()
+  storeId?: string;
+
+  @ApiPropertyOptional({ description: 'Restaurant ID (optional, for Admin or Restaurant Manager)' })
+  @IsString()
+  @IsOptional()
+  restaurantId?: string;
 }
+

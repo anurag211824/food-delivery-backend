@@ -1,4 +1,12 @@
-import { Injectable, Inject, NotFoundException, ConflictException, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Inject,
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { CreateDeliveryDto } from './dto/create-delivery.dto';
@@ -22,7 +30,7 @@ export class DeliveryService {
     private readonly communicationsService: CommunicationsService,
     @InjectQueue('orders') private readonly orderQueue: Queue,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-  ) { }
+  ) {}
 
   async createProfile(userId: string, dto: CreateDeliveryDto) {
     const existing = await this.prisma.driverProfile.findUnique({
@@ -30,7 +38,7 @@ export class DeliveryService {
     });
 
     if (existing) {
-      throw new ConflictException("You already have a driver profile!")
+      throw new ConflictException('You already have a driver profile!');
     }
 
     return this.prisma.driverProfile.create({
@@ -39,17 +47,17 @@ export class DeliveryService {
         vehicleType: dto.vehicleType,
         licenseNumber: dto.licenseNumber,
         vehiclePlate: dto.vehicleLicensePlate,
-      }
-    })
+      },
+    });
   }
   async getProfile(userId: string) {
     const profile = await this.prisma.driverProfile.findUnique({
       where: { userId },
       include: {
         user: {
-          select: { name: true, email: true, phoneNumber: true, image: true }
-        }
-      }
+          select: { name: true, email: true, phoneNumber: true, image: true },
+        },
+      },
     });
 
     if (!profile) {
@@ -58,10 +66,14 @@ export class DeliveryService {
 
     // Fallback: If user's email or phone is missing, try to fetch it from their delivery request
     if (!profile.user.email || !profile.user.phoneNumber) {
-      const request = await this.prisma.deliveryPartnerRequest.findUnique({ where: { userId } });
+      const request = await this.prisma.deliveryPartnerRequest.findUnique({
+        where: { userId },
+      });
       if (request) {
-        if (!profile.user.email && request.email) profile.user.email = request.email;
-        if (!profile.user.phoneNumber && request.phoneNumber) profile.user.phoneNumber = request.phoneNumber;
+        if (!profile.user.email && request.email)
+          profile.user.email = request.email;
+        if (!profile.user.phoneNumber && request.phoneNumber)
+          profile.user.phoneNumber = request.phoneNumber;
       }
     }
 
@@ -71,17 +83,18 @@ export class DeliveryService {
   // change status ( online / offline)
 
   async toggleStatus(userId: string, status: DriverStatus) {
-
     const profile = await this.prisma.driverProfile.findUnique({
       where: { userId },
     });
 
     if (!profile) {
-      throw new NotFoundException("Driver profile not found. Please setup profile first.")
+      throw new NotFoundException(
+        'Driver profile not found. Please setup profile first.',
+      );
     }
     const updatedProfile = await this.prisma.driverProfile.update({
       where: { id: profile.id },
-      data: { status: status }
+      data: { status: status },
     });
 
     // If OFFLINE or BUSY — remove from geo index so they don't get dispatched
@@ -95,7 +108,9 @@ export class DeliveryService {
   // Phase 2: Order Assignment and Completion
 
   async getAvailableOrders(userId: string) {
-    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
     if (!profile) throw new NotFoundException('Driver profile not found.');
     if (profile.status !== 'ONLINE') {
       return []; // Return empty list instead of throwing Conflict (smoother for UI)
@@ -103,11 +118,13 @@ export class DeliveryService {
 
     const [pos, isActive] = await Promise.all([
       this.redis.geopos('driver_locations', userId),
-      this.redis.exists(`driver_last_seen:${userId}`)
+      this.redis.exists(`driver_last_seen:${userId}`),
     ]);
 
     if (!pos || !pos[0] || !isActive) {
-      throw new BadRequestException('Your live location is stale or unknown. Please ensure the app is open and location is updating.');
+      throw new BadRequestException(
+        'Your live location is stale or unknown. Please ensure the app is open and location is updating.',
+      );
     }
 
     const [currentLngStr, currentLatStr] = pos[0];
@@ -115,7 +132,9 @@ export class DeliveryService {
     const currentLng = parseFloat(currentLngStr);
 
     // 1.5 Fetch IDs of orders this driver has already declined to filter them out
-    const declinedOrderIds = await this.redis.smembers(`declined_orders:${userId}`);
+    const declinedOrderIds = await this.redis.smembers(
+      `declined_orders:${userId}`,
+    );
 
     const availableOrders = await this.prisma.order.findMany({
       where: {
@@ -123,39 +142,51 @@ export class DeliveryService {
         driverId: null,
         id: { notIn: declinedOrderIds },
         // Only show orders placed in the last 30 minutes to keep list clean
-        placedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) }
+        placedAt: { gte: new Date(Date.now() - 30 * 60 * 1000) },
       },
       include: {
         restaurant: {
-          select: { name: true, address: true, lat: true, lng: true }
+          select: { name: true, address: true, lat: true, lng: true },
+        },
+        store: {
+          select: { name: true, address: true, lat: true, lng: true },
         },
         customer: {
-          select: { name: true, phoneNumber: true }
+          select: { name: true, phoneNumber: true },
         },
         _count: {
-          select: { items: true }
-        }
+          select: { items: true },
+        },
       },
-      orderBy: { placedAt: 'desc' }
+      orderBy: { placedAt: 'desc' },
     });
 
     // 2. Geo-Fencing Filter - Align with OrderQueueProcessor (15km)
     const MAX_DISTANCE_KM = 15;
 
-    return availableOrders.map(order => {
-      const distance = this.calculateDistance(
-        currentLat,
-        currentLng,
-        order.restaurant.lat,
-        order.restaurant.lng
-      );
+    return availableOrders
+      .map((order) => {
+        // Resolve merchant (restaurant or dark store) for pickup coordinates
+        const merchant = order.restaurant ?? order.store;
+        if (!merchant) return null;
 
-      return {
-        ...order,
-        distanceToRestaurantKm: parseFloat(distance.toFixed(2)),
-        itemCount: order._count.items
-      };
-    }).filter(order => order.distanceToRestaurantKm <= MAX_DISTANCE_KM);
+        const distance = this.calculateDistance(
+          currentLat,
+          currentLng,
+          merchant.lat,
+          merchant.lng,
+        );
+
+        return {
+          ...order,
+          distanceToRestaurantKm: parseFloat(distance.toFixed(2)),
+          itemCount: order._count.items,
+        };
+      })
+      .filter(
+        (order): order is NonNullable<typeof order> =>
+          order !== null && order.distanceToRestaurantKm <= MAX_DISTANCE_KM,
+      );
   }
 
   async acceptOrder(userId: string, orderId: string) {
@@ -167,11 +198,13 @@ export class DeliveryService {
 
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: { restaurant: true },
+      include: { restaurant: true, store: true },
     });
     if (!order) throw new NotFoundException('Order not found.');
     if (order.status === 'CANCELLED') {
-      throw new ConflictException('This order has been cancelled and is no longer available.');
+      throw new ConflictException(
+        'This order has been cancelled and is no longer available.',
+      );
     }
     if (order.status !== 'READY' || order.driverId !== null) {
       throw new ConflictException('Order is no longer available.');
@@ -179,21 +212,27 @@ export class DeliveryService {
 
     // Guard: Prevent stacking multiple active orders
     if (profile.status === DriverStatus.BUSY) {
-      throw new ConflictException('You are already on another delivery. Finish it first!');
+      throw new ConflictException(
+        'You are already on another delivery. Finish it first!',
+      );
     }
+
+    // Resolve merchant name (restaurant or dark store)
+    const merchantName =
+      order.restaurant?.name ?? order.store?.name ?? 'the merchant';
 
     // Atomic assignment
     const updatedOrder = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         driverId: profile.id,
-      }
+      },
     });
 
     // Make the driver BUSY so they don't get pinged for more orders
     await this.prisma.driverProfile.update({
       where: { id: profile.id },
-      data: { status: 'BUSY' }
+      data: { status: 'BUSY' },
     });
 
     // Remove from Redis geo index (BUSY drivers shouldn't be dispatched)
@@ -213,13 +252,17 @@ export class DeliveryService {
     });
 
     // 📱 Push notification to customer
-    this.notificationsService.send(
-      order.customerId,
-      'Driver Assigned! 🛵',
-      `${profile.user.name} is picking up your order from ${order.restaurant.name}.`,
-      'ORDER_UPDATE',
-      { orderId, status: order.status }
-    ).catch(e => this.logger.error('Failed to send driver assigned push', e));
+    this.notificationsService
+      .send(
+        order.customerId,
+        'Driver Assigned! 🛵',
+        `${profile.user.name} is picking up your order from ${merchantName}.`,
+        'ORDER_UPDATE',
+        { orderId, status: order.status },
+      )
+      .catch((e) =>
+        this.logger.error('Failed to send driver assigned push', e),
+      );
 
     return updatedOrder;
   }
@@ -227,19 +270,27 @@ export class DeliveryService {
   async pickupOrder(userId: string, orderId: string) {
     const profile = await this.prisma.driverProfile.findUnique({
       where: { userId },
-      include: { user: { select: { name: true, phoneNumber: true } } }
+      include: { user: { select: { name: true, phoneNumber: true } } },
     });
     if (!profile) throw new NotFoundException('Driver profile not found.');
 
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
     if (!order) throw new NotFoundException('Order not found.');
 
     if (order.driverId !== profile.id) {
       throw new ForbiddenException('You are not assigned to this order.');
     }
 
-    if (order.status !== 'READY' && order.status !== 'ACCEPTED' && order.status !== 'PREPARING') {
-      throw new ConflictException(`Order must be PREPARING or READY to pick up. Current status: ${order.status}`);
+    if (
+      order.status !== 'READY' &&
+      order.status !== 'ACCEPTED' &&
+      order.status !== 'PREPARING'
+    ) {
+      throw new ConflictException(
+        `Order must be PREPARING or READY to pick up. Current status: ${order.status}`,
+      );
     }
 
     const updatedOrder = await this.prisma.order.update({
@@ -247,35 +298,42 @@ export class DeliveryService {
       data: {
         status: 'ON_THE_WAY',
         pickedUpAt: new Date(),
-      }
+      },
     });
 
     this.eventsGateway.emitOrderStatusChange(orderId, 'ON_THE_WAY');
 
-    this.notificationsService.send(
-      order.customerId,
-      // Move the OTP to the title so it's visible instantly without expansion
-      `On the way! Code: ${order.otp}`,
-      // Keep the body conversational but clear
-      `${profile.user.name} is arriving with your order. Please have your code ready for the rider.`,
-      'ORDER_UPDATE',
-      { orderId, status: 'ON_THE_WAY' }
-    ).catch(e => this.logger.error('Failed to send order on the way push', e));
+    this.notificationsService
+      .send(
+        order.customerId,
+        // Move the OTP to the title so it's visible instantly without expansion
+        `On the way! Code: ${order.otp}`,
+        // Keep the body conversational but clear
+        `${profile.user.name} is arriving with your order. Please have your code ready for the rider.`,
+        'ORDER_UPDATE',
+        { orderId, status: 'ON_THE_WAY' },
+      )
+      .catch((e) =>
+        this.logger.error('Failed to send order on the way push', e),
+      );
 
     return updatedOrder;
   }
 
   async completeOrder(userId: string, orderId: string, otp: string) {
-    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
     if (!profile) throw new NotFoundException('Driver profile not found.');
 
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
         restaurant: true,
+        store: true,
         items: {
-          include: { menuItem: true, variant: true, selectedAddons: true }
-        }
+          include: { menuItem: true, variant: true, selectedAddons: true },
+        },
       },
     });
     if (!order) throw new NotFoundException('Order not found.');
@@ -293,17 +351,23 @@ export class DeliveryService {
     const MAX_OTP_ATTEMPTS = 5;
     const currentAttempts = await this.redis.get(otpAttemptsKey);
     if (currentAttempts && parseInt(currentAttempts) >= MAX_OTP_ATTEMPTS) {
-      throw new BadRequestException('Too many failed OTP attempts. Please wait 10 minutes before trying again.');
+      throw new BadRequestException(
+        'Too many failed OTP attempts. Please wait 10 minutes before trying again.',
+      );
     }
 
     if (order.otp !== otp) {
       // Increment failed attempts with a 10 minute TTL
-      await this.redis.multi()
+      await this.redis
+        .multi()
         .incr(otpAttemptsKey)
         .expire(otpAttemptsKey, 600)
         .exec();
-      const remaining = MAX_OTP_ATTEMPTS - (parseInt(currentAttempts || '0') + 1);
-      throw new BadRequestException(`Invalid OTP. ${remaining > 0 ? `${remaining} attempts remaining.` : 'Account locked for 10 minutes.'}`);
+      const remaining =
+        MAX_OTP_ATTEMPTS - (parseInt(currentAttempts || '0') + 1);
+      throw new BadRequestException(
+        `Invalid OTP. ${remaining > 0 ? `${remaining} attempts remaining.` : 'Account locked for 10 minutes.'}`,
+      );
     }
 
     // OTP correct — clear the attempt counter
@@ -311,14 +375,14 @@ export class DeliveryService {
 
     const isCOD = order.paymentMode === 'COD';
 
-    // ⚡ Atomic: mark delivered (+ mark paid if COD) 
+    // ⚡ Atomic: mark delivered (+ mark paid if COD)
     const deliveredOrder = await this.prisma.order.update({
       where: { id: orderId },
       data: {
         status: 'DELIVERED',
         deliveredAt: new Date(),
         ...(isCOD && { isPaid: true }), // COD is paid on door delivery
-      }
+      },
     });
 
     // Increment totalDeliveries counter and make driver available again
@@ -344,27 +408,35 @@ export class DeliveryService {
       );
     }
 
-    // ─── RESTAURANT PAYOUT ────────────────────────────────────────────────
-    // All payment modes: credit restaurant manager itemTotal + tax - commission
+    // ─── MERCHANT PAYOUT ──────────────────────────────────────────────────
+    // All payment modes: credit merchant manager itemTotal + tax - commission
     // For COD: happening now because cash was just collected
-    // For WALLET/online: customer already paid — restaurant gets their share at delivery
-    const restaurantPayout = order.itemTotal + order.tax - order.commission;
-    if (restaurantPayout > 0) {
+    // For WALLET/online: customer already paid — merchant gets their share at delivery
+    const merchantManagerId =
+      order.restaurant?.managerId ?? order.store?.managerId;
+    const merchantName =
+      order.restaurant?.name ?? order.store?.name ?? 'merchant';
+    const merchantPayout = order.itemTotal + order.tax - order.commission;
+    if (merchantPayout > 0 && merchantManagerId) {
       const payoutType = isCOD
-        ? `COD_RESTAURANT_PAYOUT:${order.id}`
-        : `RESTAURANT_PAYOUT:${order.id}`;
+        ? `COD_MERCHANT_PAYOUT:${order.id}`
+        : `MERCHANT_PAYOUT:${order.id}`;
 
-      await this.walletsService.addFunds(
-        order.restaurant.managerId,
-        restaurantPayout,
-        payoutType,
-        `Restaurant payout of ₹${restaurantPayout} for order #${order.id.slice(-6)}`,
-      ).catch(e => this.logger.error(`Failed restaurant payout for order ${order.id}:`, e));
+      await this.walletsService
+        .addFunds(
+          merchantManagerId,
+          merchantPayout,
+          payoutType,
+          `Payout of ₹${merchantPayout} for order #${order.id.slice(-6)}`,
+        )
+        .catch((e) =>
+          this.logger.error(`Failed merchant payout for order ${order.id}:`, e),
+        );
     }
 
     // ─── COD SETTLEMENT ───────────────────────────────────────────────────
-    // Rider collected totalAmount cash. Because we already credited their digital 
-    // wallet with driverEarnings above, they owe the platform the full totalAmount 
+    // Rider collected totalAmount cash. Because we already credited their digital
+    // wallet with driverEarnings above, they owe the platform the full totalAmount
     // they collected in cash. We debit this via forceCharge (allows negative).
     if (isCOD) {
       const cashToRemit = order.totalAmount;
@@ -382,13 +454,17 @@ export class DeliveryService {
         try {
           const riderWallet = await this.walletsService.getBalance(userId);
           if (riderWallet.balance < COD_ALERT_THRESHOLD) {
-            this.notificationsService.send(
-              userId,
-              'Cash Deposit Reminder 💰',
-              `Your wallet balance is ₹${riderWallet.balance.toFixed(0)}. Please deposit your collected cash to avoid delivery restrictions.`,
-              'SYSTEM',
-              { walletBalance: riderWallet.balance },
-            ).catch(e => this.logger.error('Failed to send COD wallet alert', e));
+            this.notificationsService
+              .send(
+                userId,
+                'Cash Deposit Reminder 💰',
+                `Your wallet balance is ₹${riderWallet.balance.toFixed(0)}. Please deposit your collected cash to avoid delivery restrictions.`,
+                'SYSTEM',
+                { walletBalance: riderWallet.balance },
+              )
+              .catch((e) =>
+                this.logger.error('Failed to send COD wallet alert', e),
+              );
           }
         } catch (e) {
           this.logger.error('Failed to check COD wallet threshold:', e);
@@ -402,43 +478,54 @@ export class DeliveryService {
     this.eventsGateway.cleanupOrderRoom(orderId);
 
     // 📱 Push notification to customer
-    this.notificationsService.send(
-      order.customerId,
-      'Order Delivered! 🎉',
-      'Enjoy your meal! Don\'t forget to leave a review.',
-      'ORDER_UPDATE',
-      { orderId, status: 'DELIVERED' }
-    ).catch(e => this.logger.error('Failed to send delivery complete push', e));
+    this.notificationsService
+      .send(
+        order.customerId,
+        'Order Delivered! 🎉',
+        "Enjoy your meal! Don't forget to leave a review.",
+        'ORDER_UPDATE',
+        { orderId, status: 'DELIVERED' },
+      )
+      .catch((e) =>
+        this.logger.error('Failed to send delivery complete push', e),
+      );
 
     // 📧 Send Order Delivered Email
-    const deliveredCustomer = await this.prisma.user.findUnique({ where: { id: order.customerId } });
+    const deliveredCustomer = await this.prisma.user.findUnique({
+      where: { id: order.customerId },
+    });
     if (deliveredCustomer?.email) {
-      this.communicationsService.queueEmail({
-        to: deliveredCustomer.email,
-        subject: `Order Delivered! #${orderId}`,
-        template: 'order_delivered',
-        event: 'ORDER_DELIVERED',
-        userId: order.customerId,
-        templateData: {
-          userName: deliveredCustomer.name,
-          orderId: orderId,
-          restaurantName: order.restaurant.name,
-          totalAmount: order.totalAmount,
-          reviewUrl: `${process.env.CUSTOMER_APP_SCHEME}://(tabs)/orders/${orderId}?openReview=true`,
-          // Bill Details
-          items: order.items.map(item => ({
-            name: item.itemName,
-            quantity: item.quantity,
-            price: item.totalPrice,
-          })),
-          itemTotal: order.itemTotal,
-          tax: order.tax,
-          deliveryCharge: order.deliveryCharge,
-          platformFee: order.platformFee,
-          discount: order.discount,
-          driverTip: order.driverTip,
-        },
-      }).catch(e => this.logger.error(`Failed to queue order delivered email: ${e}`));
+      this.communicationsService
+        .queueEmail({
+          to: deliveredCustomer.email,
+          subject: `Order Delivered! #${orderId}`,
+          template: 'order_delivered',
+          event: 'ORDER_DELIVERED',
+          userId: order.customerId,
+          templateData: {
+            userName: deliveredCustomer.name,
+            orderId: orderId,
+            restaurantName:
+              order.restaurant?.name ?? order.store?.name ?? 'merchant',
+            totalAmount: order.totalAmount,
+            reviewUrl: `${process.env.CUSTOMER_APP_SCHEME}://(tabs)/orders/${orderId}?openReview=true`,
+            // Bill Details
+            items: order.items.map((item) => ({
+              name: item.itemName,
+              quantity: item.quantity,
+              price: item.totalPrice,
+            })),
+            itemTotal: order.itemTotal,
+            tax: order.tax,
+            deliveryCharge: order.deliveryCharge,
+            platformFee: order.platformFee,
+            discount: order.discount,
+            driverTip: order.driverTip,
+          },
+        })
+        .catch((e) =>
+          this.logger.error(`Failed to queue order delivered email: ${e}`),
+        );
     }
 
     return deliveredOrder;
@@ -446,10 +533,14 @@ export class DeliveryService {
 
   // ─── DRIVER DECLINE ORDER ─────────────────────────────────────────
   async declineOrder(userId: string, orderId: string) {
-    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
     if (!profile) throw new NotFoundException('Driver profile not found.');
 
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
     if (!order) throw new NotFoundException('Order not found.');
 
     if (order.status !== 'READY' || order.driverId !== null) {
@@ -468,15 +559,22 @@ export class DeliveryService {
     // Expire the decline tracking after 1 hour (orders are likely cancelled by then anyway)
     await this.redis.expire(`declined_orders:${userId}`, 3600);
 
-    return { message: 'Order declined. It will be offered to the next available driver.' };
+    return {
+      message:
+        'Order declined. It will be offered to the next available driver.',
+    };
   }
 
   // ─── DRIVER CANCEL ACTIVE ORDER ───────────────────────────────────
   async cancelOrder(userId: string, orderId: string) {
-    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
     if (!profile) throw new NotFoundException('Driver profile not found.');
 
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
     if (!order) throw new NotFoundException('Order not found.');
 
     if (order.driverId !== profile.id) {
@@ -485,7 +583,9 @@ export class DeliveryService {
 
     // You can only cancel if you haven't picked it up yet (standard policy)
     if (order.status !== 'READY' && order.status !== 'ACCEPTED') {
-      throw new ConflictException(`Cannot cancel order in status: ${order.status}`);
+      throw new ConflictException(
+        `Cannot cancel order in status: ${order.status}`,
+      );
     }
 
     // Release the order
@@ -495,55 +595,76 @@ export class DeliveryService {
         data: {
           driverId: null,
           status: 'READY',
-        }
+        },
       }),
       this.prisma.driverProfile.update({
         where: { id: profile.id },
-        data: { status: 'ONLINE' }
-      })
+        data: { status: 'ONLINE' },
+      }),
     ]);
 
     // Re-dispatch into the queue immediately
     await this.orderQueue.add(
       'dispatch-order',
       { orderId, ignoredDriverIds: [userId] }, // Skip this driver during re-dispatch
-      { delay: 0 }
+      { delay: 0 },
     );
 
     this.eventsGateway.emitOrderStatusChange(orderId, 'READY');
 
-    // 🚀 NEW: Notify Restaurant Manager
-    const restaurant = await this.prisma.restaurant.findUnique({
-      where: { id: order.restaurantId }
-    });
-    if (restaurant) {
-      this.notificationsService.send(
-        restaurant.managerId,
-        'Rider Released Order ⚠️',
-        `The rider assigned to order #${orderId.slice(-6)} is no longer available. We are assigning a new one now.`,
-        'ORDER_UPDATE',
-        { orderId, status: 'READY' }
-      ).catch(e => this.logger.error('Failed to notify restaurant of rider release', e));
+    // 🚀 NEW: Notify Merchant Manager (Restaurant or Store)
+    const merchantId = order.restaurantId ?? order.storeId;
+    if (merchantId) {
+      const merchant = order.restaurantId
+        ? await this.prisma.restaurant.findUnique({
+            where: { id: order.restaurantId },
+          })
+        : order.storeId
+          ? await this.prisma.store.findUnique({ where: { id: order.storeId } })
+          : null;
 
-      // Update restaurant live dashboard
-      this.eventsGateway.server.to(`restaurant_${restaurant.id}`).emit('rider_released', { orderId });
+      if (merchant) {
+        this.notificationsService
+          .send(
+            merchant.managerId,
+            'Rider Released Order ⚠️',
+            `The rider assigned to order #${orderId.slice(-6)} is no longer available. We are assigning a new one now.`,
+            'ORDER_UPDATE',
+            { orderId, status: 'READY' },
+          )
+          .catch((e) =>
+            this.logger.error('Failed to notify merchant of rider release', e),
+          );
+
+        // Update merchant live dashboard
+        const roomPrefix = order.restaurantId ? 'restaurant' : 'store';
+        this.eventsGateway.server
+          .to(`${roomPrefix}_${merchantId}`)
+          .emit('rider_released', { orderId });
+      }
     }
 
     // 🚀 NEW: Notify Customer
-    this.notificationsService.send(
-      order.customerId,
-      'Rider Update 🛵',
-      'Your assigned rider is no longer available. We are looking for a replacement now!',
-      'ORDER_UPDATE',
-      { orderId, status: 'READY' }
-    ).catch(e => this.logger.error('Failed to notify customer of rider release', e));
+    this.notificationsService
+      .send(
+        order.customerId,
+        'Rider Update 🛵',
+        'Your assigned rider is no longer available. We are looking for a replacement now!',
+        'ORDER_UPDATE',
+        { orderId, status: 'READY' },
+      )
+      .catch((e) =>
+        this.logger.error('Failed to notify customer of rider release', e),
+      );
 
     return { message: 'Delivery cancelled and released for other drivers.' };
   }
 
   // ─── GET MY CURRENT ORDER ──────────────────────────────────────────────
   async getMyCurrentOrder(userId: string) {
-    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
     if (!profile) throw new NotFoundException('Driver profile not found.');
 
     const activeOrder = await this.prisma.order.findFirst({
@@ -553,13 +674,28 @@ export class DeliveryService {
       },
       include: {
         restaurant: {
-          select: { name: true, address: true, lat: true, lng: true, image: true },
+          select: {
+            name: true,
+            address: true,
+            lat: true,
+            lng: true,
+            image: true,
+          },
+        },
+        store: {
+          select: {
+            name: true,
+            address: true,
+            lat: true,
+            lng: true,
+            logo: true,
+          },
         },
         customer: {
           select: { name: true, phoneNumber: true },
         },
         items: {
-          include: { menuItem: true, variant: true, selectedAddons: true },
+          include: { menuItem: true, product: true, variant: true, selectedAddons: true },
         },
       },
     });
@@ -567,10 +703,12 @@ export class DeliveryService {
     if (!activeOrder) {
       // Self-healing: If driver is stuck in BUSY but has no orders, reset them to ONLINE
       if (profile.status === 'BUSY') {
-        this.logger.log(`[Self-Healing] Driver ${userId} was stuck in BUSY with no active orders. Resetting to ONLINE.`);
+        this.logger.log(
+          `[Self-Healing] Driver ${userId} was stuck in BUSY with no active orders. Resetting to ONLINE.`,
+        );
         await this.prisma.driverProfile.update({
           where: { id: profile.id },
-          data: { status: 'ONLINE' }
+          data: { status: 'ONLINE' },
         });
       }
       return { message: 'No active delivery at the moment.', order: null };
@@ -581,12 +719,21 @@ export class DeliveryService {
 
   // ─── GET MY EARNINGS SUMMARY ───────────────────────────────────────────
   async getMyEarnings(userId: string) {
-    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
     if (!profile) throw new NotFoundException('Driver profile not found.');
 
     // Time range helpers
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+      0,
+      0,
+      0,
+    );
     const weekStart = new Date(now);
     weekStart.setDate(now.getDate() - now.getDay()); // Start of current week (Sunday)
     weekStart.setHours(0, 0, 0, 0);
@@ -618,10 +765,16 @@ export class DeliveryService {
     });
 
     // Calculate aggregates
-    const todayDeliveryPay = todayOrders.reduce((sum, o) => sum + o.deliveryCharge, 0);
+    const todayDeliveryPay = todayOrders.reduce(
+      (sum, o) => sum + o.deliveryCharge,
+      0,
+    );
     const todayTips = todayOrders.reduce((sum, o) => sum + o.driverTip, 0);
     const todayEarnings = todayDeliveryPay + todayTips;
-    const weeklyEarnings = weekOrders.reduce((sum, o) => sum + o.deliveryCharge + o.driverTip, 0);
+    const weeklyEarnings = weekOrders.reduce(
+      (sum, o) => sum + o.deliveryCharge + o.driverTip,
+      0,
+    );
 
     // Wallet balance
     const wallet = await this.prisma.wallet.findUnique({
@@ -649,13 +802,18 @@ export class DeliveryService {
 
   // ─── GET ORDER ROUTE ───────────────────────────────────────────────────
   async getOrderRoute(userId: string, orderId: string) {
-    const profile = await this.prisma.driverProfile.findUnique({ where: { userId } });
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+    });
     if (!profile) throw new NotFoundException('Driver profile not found.');
 
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
         restaurant: {
+          select: { name: true, address: true, lat: true, lng: true },
+        },
+        store: {
           select: { name: true, address: true, lat: true, lng: true },
         },
         customer: {
@@ -668,6 +826,12 @@ export class DeliveryService {
     // Allow if driver is assigned OR if the order is still READY (so driver can view preview route before accepting)
     if (order.driverId && order.driverId !== profile.id) {
       throw new ForbiddenException('You are not assigned to this order.');
+    }
+
+    // Resolve merchant (restaurant or dark store) for pickup coordinates
+    const merchant = order.restaurant ?? order.store;
+    if (!merchant) {
+      throw new NotFoundException('Merchant details not found for this order.');
     }
 
     // Determine dropoff location from customer's default address or fallback to first saved address
@@ -684,10 +848,10 @@ export class DeliveryService {
       orderId: order.id,
       status: order.status,
       pickup: {
-        name: order.restaurant.name,
-        address: order.restaurant.address,
-        lat: order.restaurant.lat,
-        lng: order.restaurant.lng,
+        name: merchant.name,
+        address: merchant.address,
+        lat: merchant.lat,
+        lng: merchant.lng,
       },
       dropoff: {
         name: order.customer.name,
@@ -699,20 +863,28 @@ export class DeliveryService {
       },
       // Calculate a rough straight-line distance in km using Haversine
       distanceKm: this.calculateDistance(
-        order.restaurant.lat,
-        order.restaurant.lng,
+        merchant.lat,
+        merchant.lng,
         customerAddress.lat,
-        customerAddress.lng
+        customerAddress.lng,
       ).toFixed(2),
     };
   }
 
   // ─── BACKGROUND LOCATION SYNC ──────────────────────────────────────────
-  async syncLocation(userId: string, lat: number, lng: number, orderId?: string) {
+  async syncLocation(
+    userId: string,
+    lat: number,
+    lng: number,
+    orderId?: string,
+  ) {
     let profileId = await this.redis.get(`driver_profile:${userId}`);
 
     if (!profileId) {
-      const profile = await this.prisma.driverProfile.findUnique({ where: { userId }, select: { id: true } });
+      const profile = await this.prisma.driverProfile.findUnique({
+        where: { userId },
+        select: { id: true },
+      });
       if (!profile) throw new NotFoundException('Driver profile not found.');
       profileId = profile.id;
       await this.redis.set(`driver_profile:${userId}`, profileId, 'EX', 3600); // Cache for 1 hour
@@ -724,26 +896,35 @@ export class DeliveryService {
 
     // 2. If an orderId is provided (or if tracking active delivery), emit via socket
     if (orderId) {
-      this.eventsGateway.server.to(`order_${orderId}`).emit('order_location_update', {
-        orderId,
-        driverProfileId: profileId,
-        lat,
-        lng,
-      });
+      this.eventsGateway.server
+        .to(`order_${orderId}`)
+        .emit('order_location_update', {
+          orderId,
+          driverProfileId: profileId,
+          lat,
+          lng,
+        });
     }
 
     return { success: true };
   }
 
   // Helper function to calculate distance in km
-  private calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  private calculateDistance(
+    lat1: number,
+    lon1: number,
+    lat2: number,
+    lon2: number,
+  ): number {
     const R = 6371; // Radius of the earth in km
     const dLat = this.deg2rad(lat2 - lat1);
     const dLon = this.deg2rad(lon2 - lon1);
     const a =
       Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(this.deg2rad(lat1)) * Math.cos(this.deg2rad(lat2)) *
-      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      Math.cos(this.deg2rad(lat1)) *
+        Math.cos(this.deg2rad(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c;
   }

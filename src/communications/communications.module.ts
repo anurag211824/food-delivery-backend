@@ -24,8 +24,10 @@ import { PrismaModule } from '../prisma/prisma.module';
     {
       provide: 'ISmsProvider',
       useFactory: (configService: ConfigService) => {
-        const smsProvider = configService.get<string>('SMS_PROVIDER', 'mock').toLowerCase();
-        
+        const smsProvider = configService
+          .get<string>('SMS_PROVIDER', 'mock')
+          .toLowerCase();
+
         if (smsProvider === 'msg91') {
           return new Msg91SmsProvider(configService);
         }
@@ -40,8 +42,10 @@ import { PrismaModule } from '../prisma/prisma.module';
     {
       provide: 'IEmailProvider',
       useFactory: (configService: ConfigService) => {
-        const emailProvider = configService.get<string>('EMAIL_PROVIDER', 'mock').toLowerCase();
-        
+        const emailProvider = configService
+          .get<string>('EMAIL_PROVIDER', 'mock')
+          .toLowerCase();
+
         if (emailProvider === 'resend' && configService.get('RESEND_API_KEY')) {
           return new ResendEmailProvider(configService);
         }

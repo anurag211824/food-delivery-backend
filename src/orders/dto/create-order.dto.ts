@@ -1,17 +1,32 @@
-import { IsArray, IsString, IsNotEmpty, ValidateNested, IsInt, Min, IsEnum, IsOptional } from 'class-validator';
+import {
+  IsArray,
+  IsString,
+  IsNotEmpty,
+  ValidateNested,
+  IsInt,
+  Min,
+  IsEnum,
+  IsOptional,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { PaymentMethod } from '@prisma/client';
+import { PaymentMethod, OrderType } from '@prisma/client';
 
 // ─── Selected Addon DTO ─────────────────────────────────────────────────────
 
 class OrderItemAddonDto {
-  @ApiProperty({ example: 'addon_option_id_123', description: 'ID of the selected AddonOption' })
+  @ApiProperty({
+    example: 'addon_option_id_123',
+    description: 'ID of the selected AddonOption',
+  })
   @IsString()
   @IsNotEmpty()
   addonOptionId: string;
 
-  @ApiPropertyOptional({ example: 1, description: 'Quantity of this addon (default 1)' })
+  @ApiPropertyOptional({
+    example: 1,
+    description: 'Quantity of this addon (default 1)',
+  })
   @IsInt()
   @Min(1)
   @IsOptional()
@@ -20,13 +35,28 @@ class OrderItemAddonDto {
 
 // ─── Order Item DTO ─────────────────────────────────────────────────────────
 
-class OrderItemDto {
-  @ApiProperty({ example: 'menu_item_id_123', description: 'ID of the MenuItem' })
+export class OrderItemDto {
+  @ApiPropertyOptional({
+    example: 'menu_item_id_123',
+    description: 'ID of the MenuItem (for FOOD orders)',
+  })
   @IsString()
-  @IsNotEmpty()
-  menuItemId: string;
+  @IsOptional()
+  menuItemId?: string;
 
-  @ApiPropertyOptional({ example: 'variant_id_456', description: 'ID of the selected MenuVariant. Required if item has variants.' })
+  @ApiPropertyOptional({
+    example: 'product_id_789',
+    description: 'ID of the Product (for GROCERY orders)',
+  })
+  @IsString()
+  @IsOptional()
+  productId?: string;
+
+  @ApiPropertyOptional({
+    example: 'variant_id_456',
+    description:
+      'ID of the selected MenuVariant. Required if item has variants.',
+  })
   @IsString()
   @IsOptional()
   variantId?: string;
@@ -38,7 +68,7 @@ class OrderItemDto {
 
   @ApiPropertyOptional({
     type: [OrderItemAddonDto],
-    description: 'Selected addons for this item'
+    description: 'Selected addons for this item (only for FOOD orders)',
   })
   @IsArray()
   @ValidateNested({ each: true })
@@ -50,12 +80,31 @@ class OrderItemDto {
 // ─── Main Order DTO ─────────────────────────────────────────────────────────
 
 export class CreateOrderDto {
-  @ApiProperty({ example: 'restaurant_id_456' })
+  @ApiPropertyOptional({
+    example: 'restaurant_id_456',
+    description: 'Required for FOOD orders',
+  })
   @IsString()
-  @IsNotEmpty()
-  restaurantId: string;
+  @IsOptional()
+  restaurantId?: string;
 
-  @ApiProperty({ type: [OrderItemDto], description: 'Items to order with variant and addon selections' })
+  @ApiPropertyOptional({
+    example: 'store_id_789',
+    description: 'Required for GROCERY orders',
+  })
+  @IsString()
+  @IsOptional()
+  storeId?: string;
+
+  @ApiPropertyOptional({ enum: OrderType, example: 'FOOD' })
+  @IsEnum(OrderType)
+  @IsOptional()
+  orderType?: OrderType;
+
+  @ApiProperty({
+    type: [OrderItemDto],
+    description: 'Items to order with variant and addon selections',
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => OrderItemDto)
@@ -65,7 +114,10 @@ export class CreateOrderDto {
   @IsEnum(PaymentMethod)
   paymentMode: PaymentMethod;
 
-  @ApiPropertyOptional({ example: 'WELCOME50', description: 'Promo code to apply' })
+  @ApiPropertyOptional({
+    example: 'WELCOME50',
+    description: 'Promo code to apply',
+  })
   @IsOptional()
   @IsString()
   promoCode?: string;
@@ -75,7 +127,10 @@ export class CreateOrderDto {
   @IsString()
   addressId?: string;
 
-  @ApiPropertyOptional({ example: 20, description: 'Tip amount for the driver' })
+  @ApiPropertyOptional({
+    example: 20,
+    description: 'Tip amount for the driver',
+  })
   @IsOptional()
   @IsInt()
   @Min(0)

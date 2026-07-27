@@ -3,7 +3,7 @@ import { IEmailProvider } from '../interfaces/email-provider.interface';
 
 /**
  * Mock Email Provider
- * 
+ *
  * Used for development and testing. Instead of sending a real email,
  * it just logs the email contents to the console.
  */
@@ -20,10 +20,10 @@ Subject: ${subject}
 Body (HTML): 
 ${html.trim()}
 ================================================`);
-    
+
     // Simulate network delay
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
+    await new Promise((resolve) => setTimeout(resolve, 500));
+
     const messageId = `mock-email-${Date.now()}`;
     return messageId;
   }

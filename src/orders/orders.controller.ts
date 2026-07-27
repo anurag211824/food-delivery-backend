@@ -1,8 +1,24 @@
 import {
-  Controller, Get, Post, Body, Patch, Delete, Param, Req, UseGuards, Query
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Delete,
+  Param,
+  Req,
+  UseGuards,
+  Query,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiBody } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+  ApiParam,
+  ApiBody,
+} from '@nestjs/swagger';
 import { OrderStatus, Role } from '@prisma/client';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
@@ -19,29 +35,39 @@ import { PaginationDto } from '../common/pagination.dto';
 @UseGuards(AuthGuard) // ⚡ Enforcement: Blocks unauthenticated users
 @Controller('api/orders')
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) { }
-
+  constructor(private readonly ordersService: OrdersService) {}
 
   @Get('my-history')
   @ApiOperation({ summary: 'Get current user order history' })
-  async getMyOrders(@Req() req: AuthenticatedRequest, @Query() dto: PaginationDto) {
+  async getMyOrders(
+    @Req() req: AuthenticatedRequest,
+    @Query() dto: PaginationDto,
+  ) {
     const user = (req as any).user;
     return this.ordersService.getCustomerOrders(user.id, dto);
   }
 
   @Get('restaurant')
-  @ApiOperation({ summary: "Get Orders for managed restaurant (Manager Only)" })
+  @ApiOperation({ summary: 'Get Orders for managed restaurant (Manager Only)' })
   @UseGuards(RolesGuard)
   @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
   async getRestaurantOrders(
-    @Req() req: AuthenticatedRequest, 
+    @Req() req: AuthenticatedRequest,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: OrderStatus,
-    @Query('restaurantId') restaurantId?: string
+    @Query('restaurantId') restaurantId?: string,
   ) {
-    const dto: PaginationDto = { page: Number(page) || 1, limit: Number(limit) || 10 };
-    return this.ordersService.getRestaurantOrders(req.user, dto, status, restaurantId);
+    const dto: PaginationDto = {
+      page: Number(page) || 1,
+      limit: Number(limit) || 10,
+    };
+    return this.ordersService.getRestaurantOrders(
+      req.user,
+      dto,
+      status,
+      restaurantId,
+    );
   }
 
   @Get('current')
@@ -52,9 +78,9 @@ export class OrdersController {
     return this.ordersService.getCurrentOrder(req.user.id);
   }
 
-  @Get(":id")
-  @ApiOperation({ summary: "get order data by orderid" })
-  @ApiResponse({ status: 200, description: "order data" })
+  @Get(':id')
+  @ApiOperation({ summary: 'get order data by orderid' })
+  @ApiResponse({ status: 200, description: 'order data' })
   async getOrder(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
     return this.ordersService.getOrderById(id, req.user);
   }
@@ -63,36 +89,46 @@ export class OrdersController {
   @ApiOperation({ summary: 'Place a new order (Customer)' })
   @ApiResponse({ status: 201, description: 'Order created successfully.' })
   @Throttle({ default: { ttl: 60000, limit: 5 } }) // Max 5 orders per minute per user
-  async create(@Req() req: AuthenticatedRequest, @Body() createOrderDto: CreateOrderDto) {
+  async create(
+    @Req() req: AuthenticatedRequest,
+    @Body() createOrderDto: CreateOrderDto,
+  ) {
     // req.user is now guaranteed to exist because of the Guard
     const user = (req as any).user;
     return this.ordersService.create(user.id, createOrderDto);
   }
 
-
-
   @Post('bulk-status')
   @ApiOperation({ summary: 'Bulk update order status (Manager/Admin Only)' })
   @ApiBody({ type: BulkUpdateOrderStatusDto })
   @UseGuards(RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
+  @Roles(Role.RESTAURANT_MANAGER, Role.STORE_MANAGER, Role.ADMIN)
   async bulkUpdateStatus(
     @Body() dto: BulkUpdateOrderStatusDto,
-    @Req() req: AuthenticatedRequest
+    @Req() req: AuthenticatedRequest,
   ) {
-    return this.ordersService.bulkUpdateStatus(dto.orderIds, dto.status, req.user);
+    return this.ordersService.bulkUpdateStatus(
+      dto.orderIds,
+      dto.status,
+      req.user,
+    );
   }
 
   @Patch(':id/status')
-  @ApiOperation({ summary: 'Update order status (Manager/Admin Only)' })
+  @ApiOperation({ summary: 'Update order status (Manager/Admin/Picker)' })
   @ApiParam({ name: 'id', description: 'Order CUID' })
   @ApiBody({ type: UpdateOrderStatusDto })
   @UseGuards(RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
+  @Roles(
+    Role.RESTAURANT_MANAGER,
+    Role.STORE_MANAGER,
+    Role.ADMIN,
+    Role.STORE_PICKER,
+  )
   async updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateOrderStatusDto,
-    @Req() req: AuthenticatedRequest
+    @Req() req: AuthenticatedRequest,
   ) {
     return this.ordersService.updateStatus(id, dto.status, req.user);
   }
@@ -101,11 +137,18 @@ export class OrdersController {
   @Delete(':id')
   @ApiOperation({
     summary: 'Cancel my order (Customer)',
-    description: 'Customers can cancel orders with status PLACED or ACCEPTED. Wallet-paid orders are auto-refunded.',
+    description:
+      'Customers can cancel orders with status PLACED or ACCEPTED. Wallet-paid orders are auto-refunded.',
   })
   @ApiParam({ name: 'id', description: 'Order ID' })
-  @ApiResponse({ status: 200, description: 'Order cancelled, wallet refunded if applicable.' })
-  @ApiResponse({ status: 400, description: 'Order cannot be cancelled at this stage.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Order cancelled, wallet refunded if applicable.',
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Order cannot be cancelled at this stage.',
+  })
   async cancelOrder(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
     return this.ordersService.cancelOrder(req.user.id, id);
   }
@@ -114,7 +157,8 @@ export class OrdersController {
   @Patch(':id/cancel')
   @ApiOperation({
     summary: 'Cancel an order (Manager)',
-    description: 'Restaurant managers can cancel orders before delivery. Wallet-paid orders are auto-refunded.',
+    description:
+      'Restaurant managers can cancel orders before delivery. Wallet-paid orders are auto-refunded.',
   })
   @ApiParam({ name: 'id', description: 'Order ID' })
   @ApiBody({
@@ -126,7 +170,7 @@ export class OrdersController {
     },
   })
   @UseGuards(RolesGuard)
-  @Roles(Role.RESTAURANT_MANAGER, Role.ADMIN)
+  @Roles(Role.RESTAURANT_MANAGER, Role.STORE_MANAGER, Role.ADMIN)
   async cancelOrderByManager(
     @Param('id') id: string,
     @Body('reason') reason: string,

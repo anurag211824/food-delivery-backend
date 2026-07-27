@@ -1,4 +1,10 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException, Inject } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+  Inject,
+} from '@nestjs/common';
 import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { PrismaService } from 'src/prisma/prisma.service';
@@ -22,29 +28,31 @@ const MENU_ITEM_INCLUDE = {
 export class MenuItemsService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(CACHE_MANAGER) private cacheManager: Cache
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
 
   // ─── CREATE ────────────────────────────────────────────────────────────────
-  async create(dto: CreateMenuItemDto, user: { id: string, role: string }) {
+  async create(dto: CreateMenuItemDto, user: { id: string; role: string }) {
     const category = await this.prisma.menuCategory.findUnique({
       where: { id: dto.categoryId },
-      include: { restaurant: true }
+      include: { restaurant: true },
     });
 
     if (!category) {
-      throw new NotFoundException("Category not found");
+      throw new NotFoundException('Category not found');
     }
 
     if (user.role !== 'ADMIN' && category.restaurant.managerId !== user.id) {
-      throw new ForbiddenException("You do not have permission to add items to this category.");
+      throw new ForbiddenException(
+        'You do not have permission to add items to this category.',
+      );
     }
 
     // ─── Build variants data ──────────────────────────────────────────────
     let variantsData: any[];
 
     if (dto.variants && dto.variants.length > 0) {
-      variantsData = dto.variants.map(v => ({
+      variantsData = dto.variants.map((v) => ({
         name: v.name,
         price: v.price,
         salePrice: v.salePrice,
@@ -55,29 +63,33 @@ export class MenuItemsService {
       }));
     } else if (dto.price !== undefined) {
       // Backward compat: old clients sending `price` → auto-create Default variant
-      variantsData = [{
-        name: 'Default',
-        price: dto.price,
-        isDefault: true,
-        isAvailable: true,
-      }];
+      variantsData = [
+        {
+          name: 'Default',
+          price: dto.price,
+          isDefault: true,
+          isAvailable: true,
+        },
+      ];
     } else {
-      throw new BadRequestException('Either `variants` array or `price` must be provided.');
+      throw new BadRequestException(
+        'Either `variants` array or `price` must be provided.',
+      );
     }
 
     // Ensure exactly one default variant
-    const hasDefault = variantsData.some(v => v.isDefault);
+    const hasDefault = variantsData.some((v) => v.isDefault);
     if (!hasDefault && variantsData.length > 0) {
       variantsData[0].isDefault = true;
     }
 
     // ─── Build addons data ────────────────────────────────────────────────
-    const addonsData = (dto.addons ?? []).map(group => ({
+    const addonsData = (dto.addons ?? []).map((group) => ({
       name: group.name,
       minSelect: group.minSelect ?? 0,
       maxSelect: group.maxSelect,
       options: {
-        create: group.options.map(opt => ({
+        create: group.options.map((opt) => ({
           name: opt.name,
           price: opt.price,
           isAvailable: opt.isAvailable ?? true,
@@ -135,14 +147,18 @@ export class MenuItemsService {
     });
 
     if (!item) {
-      throw new NotFoundException("Menu item not found");
+      throw new NotFoundException('Menu item not found');
     }
 
     return item;
   }
 
   // ─── UPDATE ────────────────────────────────────────────────────────────────
-  async update(id: string, dto: UpdateMenuItemDto, user?: { id: string, role: string }) {
+  async update(
+    id: string,
+    dto: UpdateMenuItemDto,
+    user?: { id: string; role: string },
+  ) {
     const item = await this.prisma.menuItem.findUnique({
       where: { id },
       include: {
@@ -153,16 +169,30 @@ export class MenuItemsService {
     });
 
     if (!item) {
-      throw new NotFoundException("Menu item not found");
+      throw new NotFoundException('Menu item not found');
     }
 
     // Authorization: Manager can only edit own restaurant's items
-    if (user && user.role !== 'ADMIN' && item.category.restaurant.managerId !== user.id) {
-      throw new ForbiddenException("You do not have permission to edit this item.");
+    if (
+      user &&
+      user.role !== 'ADMIN' &&
+      item.category.restaurant.managerId !== user.id
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to edit this item.',
+      );
     }
 
     // ─── Update base fields ───────────────────────────────────────────────
-    const { variants, addons, deleteVariantIds, deleteAddonGroupIds, deleteAddonOptionIds, price, ...baseFields } = dto;
+    const {
+      variants,
+      addons,
+      deleteVariantIds,
+      deleteAddonGroupIds,
+      deleteAddonOptionIds,
+      price,
+      ...baseFields
+    } = dto;
 
     await this.prisma.$transaction(async (tx) => {
       // 1. Update base item fields
@@ -228,7 +258,7 @@ export class MenuItemsService {
       } else if (price !== undefined) {
         // If legacy `price` is passed (meaning no variants array was submitted),
         // update the default variant's price, or create one if none exists.
-        const defaultVariant = item.variants.find(v => v.isDefault);
+        const defaultVariant = item.variants.find((v) => v.isDefault);
         if (defaultVariant) {
           await tx.menuVariant.update({
             where: { id: defaultVariant.id },
@@ -294,7 +324,7 @@ export class MenuItemsService {
                 minSelect: group.minSelect ?? 0,
                 maxSelect: group.maxSelect,
                 options: {
-                  create: (group.options ?? []).map(opt => ({
+                  create: (group.options ?? []).map((opt) => ({
                     name: opt.name!,
                     price: opt.price!,
                     isAvailable: opt.isAvailable ?? true,
@@ -318,18 +348,24 @@ export class MenuItemsService {
   }
 
   // ─── DELETE ────────────────────────────────────────────────────────────────
-  async remove(id: string, user?: { id: string, role: string }) {
+  async remove(id: string, user?: { id: string; role: string }) {
     const item = await this.prisma.menuItem.findUnique({
       where: { id },
       include: { category: { include: { restaurant: true } } },
     });
 
     if (!item) {
-      throw new NotFoundException("Menu item not found");
+      throw new NotFoundException('Menu item not found');
     }
 
-    if (user && user.role !== 'ADMIN' && item.category.restaurant.managerId !== user.id) {
-      throw new ForbiddenException("You do not have permission to delete this item.");
+    if (
+      user &&
+      user.role !== 'ADMIN' &&
+      item.category.restaurant.managerId !== user.id
+    ) {
+      throw new ForbiddenException(
+        'You do not have permission to delete this item.',
+      );
     }
 
     // Cascade will clean up variants, addons, and addon options
