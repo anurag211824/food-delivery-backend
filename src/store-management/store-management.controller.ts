@@ -213,12 +213,11 @@ export class StoreManagementController {
   async getStats(
     @Query() dto: GetStatsDto,
     @Req() req: AuthenticatedRequest,
-    @Query('storeId') storeId?: string,
   ) {
     return this.storeManagementService.getStoreStats(
       req.user,
       dto.period,
-      storeId,
+      dto.storeId,
     );
   }
 
@@ -233,13 +232,12 @@ export class StoreManagementController {
   async getDashboardStats(
     @Query() query: DashboardQueryDto,
     @Req() req: AuthenticatedRequest,
-    @Query('storeId') storeId?: string,
   ) {
     return this.storeManagementService.getStoreDashboardStats(
       req.user,
       query.startDate,
       query.endDate,
-      storeId,
+      query.storeId,
     );
   }
 

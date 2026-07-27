@@ -682,11 +682,20 @@ export class DeliveryService {
             image: true,
           },
         },
+        store: {
+          select: {
+            name: true,
+            address: true,
+            lat: true,
+            lng: true,
+            logo: true,
+          },
+        },
         customer: {
           select: { name: true, phoneNumber: true },
         },
         items: {
-          include: { menuItem: true, variant: true, selectedAddons: true },
+          include: { menuItem: true, product: true, variant: true, selectedAddons: true },
         },
       },
     });

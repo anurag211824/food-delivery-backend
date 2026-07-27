@@ -8,6 +8,7 @@ import { ApplyReferralDto } from './dto/apply-referral.dto';
 import { PrismaService } from '../prisma/prisma.service';
 import { WalletsService } from '../wallets/wallets.service';
 import { AppConfigService } from '../app-config/app-config.service';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class ReferralsService {
@@ -54,7 +55,8 @@ export class ReferralsService {
 
     // ─── Phase 2: Distribute rewards OUTSIDE the transaction ─────────────────
     // Each addFunds() call runs its own independent transaction — no nesting.
-    if (policy.referrerReward > 0) {
+    // Only reward the referrer if they are still a CUSTOMER (prevents staff from earning referral income)
+    if (policy.referrerReward > 0 && referrer.role === Role.CUSTOMER) {
       await this.walletsService.addFunds(
         referrer.id,
         policy.referrerReward,
@@ -119,7 +121,8 @@ export class ReferralsService {
 
     // Credit the inviter and the invitee using independent transactions
     // Idempotency: Use unique transaction types and check for existing credits
-    if (policy.referrerReward > 0) {
+    // Only reward the referrer if they are still a CUSTOMER (prevents staff from earning referral income)
+    if (policy.referrerReward > 0 && referrer.role === Role.CUSTOMER) {
       const referrerReason = `REFERRAL_BONUS_FOR_INVITING_${newUserId}`;
       const existingReferrerReward =
         await this.prisma.walletTransaction.findFirst({

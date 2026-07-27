@@ -341,11 +341,12 @@ export class AdminController {
       example: {
         totalUsers: 500,
         totalRestaurants: 20,
+        totalStores: 10,
         totalOrders: 1200,
         todayOrders: 45,
         totalRevenue: 350000,
         activeDrivers: 8,
-        pendingRequests: { restaurant: 3, delivery: 5 },
+        pendingRequests: { restaurant: 3, delivery: 5, store: 2 },
       },
     },
   })
