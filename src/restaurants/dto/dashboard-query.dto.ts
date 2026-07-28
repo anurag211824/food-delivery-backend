@@ -1,6 +1,6 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsDate, IsOptional } from 'class-validator';
+import { IsDate, IsOptional, IsString } from 'class-validator';
 
 export class DashboardQueryDto {
   @ApiPropertyOptional({
@@ -21,4 +21,15 @@ export class DashboardQueryDto {
   @Type(() => Date)
   @IsDate()
   endDate?: Date;
+
+  @ApiPropertyOptional({ description: 'Dark store ID (optional, for Admin or Store Manager)' })
+  @IsString()
+  @IsOptional()
+  storeId?: string;
+
+  @ApiPropertyOptional({ description: 'Restaurant ID (optional, for Admin or Restaurant Manager)' })
+  @IsString()
+  @IsOptional()
+  restaurantId?: string;
 }
+

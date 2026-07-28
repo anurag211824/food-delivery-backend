@@ -165,9 +165,8 @@ export class RestaurantsController {
   async getStats(
     @Query() dto: GetStatsDto,
     @Req() req: AuthenticatedRequest,
-    @Query('restaurantId') restaurantId?: string,
   ) {
-    return this.restaurantsService.getStats(req.user, dto.period, restaurantId);
+    return this.restaurantsService.getStats(req.user, dto.period, dto.restaurantId);
   }
 
   // ─── MANAGER: DASHBOARD ───────────────────────────────────────────────────
@@ -192,13 +191,12 @@ export class RestaurantsController {
   async getDashboard(
     @Query() query: DashboardQueryDto,
     @Req() req: AuthenticatedRequest,
-    @Query('restaurantId') restaurantId?: string,
   ) {
     return this.restaurantsService.getDashboardStats(
       req.user,
       query.startDate,
       query.endDate,
-      restaurantId,
+      query.restaurantId,
     );
   }
 

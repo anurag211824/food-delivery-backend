@@ -577,17 +577,20 @@ export class AdminService {
     const [
       totalUsers,
       totalRestaurants,
+      totalStores,
       totalOrders,
       todayOrders,
       totalRevenue,
       activeDrivers,
       pendingRestaurantRequests,
       pendingDeliveryRequests,
+      pendingStoreRequests,
       pendingSettlements,
       pendingWithdrawals,
     ] = await Promise.all([
       this.prisma.user.count(),
       this.prisma.restaurant.count(),
+      this.prisma.store.count(),
       this.prisma.order.count(),
       this.prisma.order.count({ where: { placedAt: { gte: todayStart } } }),
       this.prisma.order.aggregate({
@@ -599,6 +602,9 @@ export class AdminService {
       this.prisma.deliveryPartnerRequest.count({
         where: { status: 'PENDING' },
       }),
+      this.prisma.storeRequest.count({
+        where: { status: 'PENDING' },
+      }),
       this.prisma.settlement.count({ where: { status: 'PENDING' } }),
       this.prisma.withdrawal.count({ where: { status: 'PENDING' } }),
     ]);
@@ -606,6 +612,7 @@ export class AdminService {
     return {
       totalUsers,
       totalRestaurants,
+      totalStores,
       totalOrders,
       todayOrders,
       totalRevenue: totalRevenue._sum.totalAmount || 0,
@@ -613,6 +620,7 @@ export class AdminService {
       pendingRequests: {
         restaurant: pendingRestaurantRequests,
         delivery: pendingDeliveryRequests,
+        store: pendingStoreRequests,
       },
       pendingSettlements,
       pendingWithdrawals,
