@@ -241,6 +241,27 @@ export class StoreManagementController {
     );
   }
 
+  @Get('my-store/settlements')
+  @Roles(Role.STORE_MANAGER, Role.ADMIN)
+  @ApiOperation({
+    summary: '[Store Manager] Get Dark Store Settlements',
+    description:
+      'Returns a paginated list of all nightly settlements for this dark store.',
+  })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  async getMyStoreSettlements(
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.storeManagementService.getMyStoreSettlements(
+      req.user,
+      Math.max(1, parseInt(page, 10)),
+      Math.min(100, Math.max(1, parseInt(limit, 10))),
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════
   // PICKER ENDPOINTS (used by the warehouse picker's app/terminal)
   // ═══════════════════════════════════════════════════════════════
