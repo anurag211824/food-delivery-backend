@@ -654,6 +654,43 @@ export class StoreManagementService {
     };
   }
 
+  async getMyStoreSettlements(
+    user: Pick<User, 'id' | 'role'>,
+    page = 1,
+    limit = 20,
+  ) {
+    const store = await this.prisma.store.findUnique({
+      where: { managerId: user.id },
+    });
+
+    if (!store) {
+      throw new NotFoundException('Store profile not found.');
+    }
+
+    const skip = (page - 1) * limit;
+    const [data, total] = await Promise.all([
+      this.prisma.settlement.findMany({
+        where: { storeId: store.id },
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.settlement.count({
+        where: { storeId: store.id },
+      }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
   // ── Stats Helper Methods ──
   private getRange(period: StatsPeriod) {
     const now = new Date();

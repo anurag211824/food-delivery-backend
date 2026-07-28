@@ -18,7 +18,7 @@ export class PayoutsService {
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async handleNightlySettlements() {
     this.logger.log(
-      '🚀 Starting nightly restaurant payouts calculation job...',
+      '🚀 Starting nightly merchant payouts calculation job...',
     );
 
     const yesterday = new Date();
@@ -34,17 +34,16 @@ export class PayoutsService {
       `Calculating settlements for period: ${startOfYesterday.toISOString()} to ${endOfYesterday.toISOString()}`,
     );
 
-    // 1. Fetch all restaurants
+    let createdCount = 0;
+
+    // ─── 1. RESTAURANT SETTLEMENTS ───────────────────────────────────────────
     const restaurants = await this.prisma.restaurant.findMany({
       where: { isActive: true },
       select: { id: true, name: true, managerId: true },
     });
 
-    let createdCount = 0;
-
     for (const restaurant of restaurants) {
       try {
-        // 2. Fetch all delivered orders for this restaurant during yesterday
         const orders = await this.prisma.order.findMany({
           where: {
             restaurantId: restaurant.id,
@@ -63,16 +62,13 @@ export class PayoutsService {
           },
         });
 
-        if (orders.length === 0) {
-          continue;
-        }
+        if (orders.length === 0) continue;
 
-        // Check if settlement already exists for this restaurant and date range to avoid duplicates
         const existingSettlement = await this.prisma.settlement.findFirst({
           where: {
             restaurantId: restaurant.id,
             createdAt: {
-              gte: new Date(new Date().setHours(0, 0, 0, 0)), // Created today (since job runs at 00:00 today for yesterday)
+              gte: new Date(new Date().setHours(0, 0, 0, 0)),
             },
           },
         });
@@ -84,7 +80,6 @@ export class PayoutsService {
           continue;
         }
 
-        // 3. Aggregate totals
         let totalRevenue = 0;
         let totalCommission = 0;
 
@@ -102,7 +97,6 @@ export class PayoutsService {
           continue;
         }
 
-        // 4. Record the settlement in database
         const dateLabel = startOfYesterday.toISOString().slice(0, 10);
         await this.prisma.settlement.create({
           data: {
@@ -117,13 +111,100 @@ export class PayoutsService {
 
         createdCount++;
         this.logger.log(
-          `Created PENDING settlement for ${restaurant.name}: Net Payout = ₹${netPayout.toFixed(
+          `Created PENDING settlement for restaurant ${restaurant.name}: Net Payout = ₹${netPayout.toFixed(
             2,
           )} (Revenue = ₹${totalRevenue.toFixed(2)}, Commission = ₹${totalCommission.toFixed(2)})`,
         );
       } catch (error: any) {
         this.logger.error(
           `Error calculating settlement for restaurant ${restaurant.name}:`,
+          error.stack,
+        );
+      }
+    }
+
+    // ─── 2. DARK STORE SETTLEMENTS ──────────────────────────────────────────
+    const stores = await this.prisma.store.findMany({
+      where: { isActive: true },
+      select: { id: true, name: true, managerId: true },
+    });
+
+    for (const store of stores) {
+      try {
+        const orders = await this.prisma.order.findMany({
+          where: {
+            storeId: store.id,
+            status: 'DELIVERED',
+            deliveredAt: {
+              gte: startOfYesterday,
+              lte: endOfYesterday,
+            },
+          },
+          select: {
+            id: true,
+            itemTotal: true,
+            tax: true,
+            commission: true,
+            totalAmount: true,
+          },
+        });
+
+        if (orders.length === 0) continue;
+
+        const existingSettlement = await this.prisma.settlement.findFirst({
+          where: {
+            storeId: store.id,
+            createdAt: {
+              gte: new Date(new Date().setHours(0, 0, 0, 0)),
+            },
+          },
+        });
+
+        if (existingSettlement) {
+          this.logger.warn(
+            `Settlement already exists for store ${store.name} today. Skipping.`,
+          );
+          continue;
+        }
+
+        let totalRevenue = 0;
+        let totalCommission = 0;
+
+        for (const order of orders) {
+          totalRevenue += order.itemTotal + order.tax;
+          totalCommission += order.commission;
+        }
+
+        const netPayout = totalRevenue - totalCommission;
+
+        if (netPayout <= 0) {
+          this.logger.warn(
+            `Net payout for store ${store.name} is ${netPayout}. Skipping settlement creation.`,
+          );
+          continue;
+        }
+
+        const dateLabel = startOfYesterday.toISOString().slice(0, 10);
+        await this.prisma.settlement.create({
+          data: {
+            storeId: store.id,
+            totalRevenue,
+            commission: totalCommission,
+            amount: netPayout,
+            status: 'PENDING',
+            description: `Daily settlement for ${orders.length} grocery order${orders.length > 1 ? 's' : ''} on ${dateLabel} — ${store.name}`,
+          },
+        });
+
+        createdCount++;
+        this.logger.log(
+          `Created PENDING settlement for store ${store.name}: Net Payout = ₹${netPayout.toFixed(
+            2,
+          )} (Revenue = ₹${totalRevenue.toFixed(2)}, Commission = ₹${totalCommission.toFixed(2)})`,
+        );
+      } catch (error: any) {
+        this.logger.error(
+          `Error calculating settlement for store ${store.name}:`,
           error.stack,
         );
       }
@@ -158,6 +239,19 @@ export class PayoutsService {
               },
             },
           },
+          store: {
+            select: {
+              name: true,
+              address: true,
+              manager: {
+                select: {
+                  name: true,
+                  email: true,
+                  phoneNumber: true,
+                },
+              },
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -173,6 +267,12 @@ export class PayoutsService {
       where: { id },
       include: {
         restaurant: {
+          select: {
+            name: true,
+            managerId: true,
+          },
+        },
+        store: {
           select: {
             name: true,
             managerId: true,
@@ -200,8 +300,10 @@ export class PayoutsService {
       },
     });
 
+    const merchantName =
+      settlement.restaurant?.name || settlement.store?.name || 'Merchant';
     this.logger.log(
-      `Settlement ${id} for restaurant ${settlement.restaurant.name} marked as PAID.`,
+      `Settlement ${id} for ${merchantName} marked as PAID.`,
     );
     return {
       message: 'Settlement marked as PAID successfully.',

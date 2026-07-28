@@ -843,8 +843,10 @@ enum PickerStatus {
 
 model Settlement {
   id           String   @id @default(cuid())
-  restaurantId String
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId String?
+  restaurant   Restaurant? @relation(fields: [restaurantId], references: [id])
+  storeId      String?
+  store        Store?     @relation(fields: [storeId], references: [id])
   amount       Float
   commission   Float
   totalRevenue Float
@@ -855,6 +857,7 @@ model Settlement {
   updatedAt    DateTime @updatedAt
 
   @@index([restaurantId])
+  @@index([storeId])
   @@index([status])
 }
 
@@ -884,6 +887,7 @@ model Store {
   inventory   StoreInventory[]
   orders      Order[]          @relation("StoreOrders")
   pickers     StorePicker[]
+  settlements Settlement[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
