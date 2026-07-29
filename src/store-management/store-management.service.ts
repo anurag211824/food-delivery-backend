@@ -173,10 +173,29 @@ export class StoreManagementService {
     if (!picker)
       throw new NotFoundException('You are not registered as a picker.');
 
+    // 1. Auto-assign any unassigned ACCEPTED/PREPARING grocery orders at this store
+    const unassignedOrders = await this.prisma.order.findMany({
+      where: {
+        storeId: picker.storeId,
+        pickerId: null,
+        type: 'GROCERY',
+        status: { in: ['ACCEPTED', 'PREPARING'] },
+      },
+    });
+
+    for (const unassigned of unassignedOrders) {
+      await this.autoAssignPicker(unassigned.id, picker.storeId);
+    }
+
+    // 2. Fetch all orders assigned to this picker OR unassigned at this store
     const orders = await this.prisma.order.findMany({
       where: {
-        pickerId: picker.id,
+        storeId: picker.storeId,
         status: { in: ['ACCEPTED', 'PREPARING'] },
+        OR: [
+          { pickerId: picker.id },
+          { pickerId: null },
+        ],
       },
       include: {
         items: {
@@ -200,8 +219,8 @@ export class StoreManagementService {
     orderId: string,
     storeId: string,
   ): Promise<string | null> {
-    // Find the least-busy AVAILABLE picker at this store
-    const availablePicker = await this.prisma.storePicker.findFirst({
+    // 1. Find the least-busy AVAILABLE or PICKING picker at this store
+    let availablePicker = await this.prisma.storePicker.findFirst({
       where: {
         storeId,
         status: { in: [PickerStatus.AVAILABLE, PickerStatus.PICKING] },
@@ -209,14 +228,29 @@ export class StoreManagementService {
       orderBy: { activeOrderCount: 'asc' }, // Least-busy first
     });
 
+    // 2. Fallback: if no active picker in AVAILABLE/PICKING, pick ANY picker at this store
+    if (!availablePicker) {
+      availablePicker = await this.prisma.storePicker.findFirst({
+        where: { storeId },
+        orderBy: { activeOrderCount: 'asc' },
+      });
+    }
+
     if (!availablePicker) {
       this.logger.warn(
-        `No available pickers at store ${storeId} for order ${orderId}. Order stays unassigned.`,
+        `No pickers found for store ${storeId} to assign order ${orderId}. Order stays unassigned.`,
       );
+      // Even if no picker record exists, broadcast order to store room
+      this.eventsGateway.server
+        .to(`store_${storeId}`)
+        .emit('picker:new-order', {
+          orderId,
+          message: 'New grocery packing order waiting!',
+        });
       return null;
     }
 
-    // Assign the order and bump the picker's active count
+    // 3. Assign the order and update picker's active count & status
     await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
         where: { id: orderId },
@@ -227,32 +261,59 @@ export class StoreManagementService {
         where: { id: availablePicker.id },
         data: {
           activeOrderCount: { increment: 1 },
-          status: PickerStatus.PICKING, // Auto-transition to PICKING
+          status: PickerStatus.PICKING, // Transition to PICKING
         },
       });
     });
 
-    // Notify the picker via WebSocket
+    // 4. Notify via WebSocket to both user room and store room
     this.eventsGateway.server
       .to(`user_${availablePicker.userId}`)
+      .to(`store_${storeId}`)
       .emit('picker:new-order', {
         orderId,
-        message: 'New order assigned to you!',
+        message: `New packing task #${orderId.slice(-6)} assigned to you!`,
       });
+
+    // 5. Notify the assigned picker via Expo Push Notification
+    this.notificationsService
+      .send(
+        availablePicker.userId,
+        'New Packing Task 📦',
+        `You have been assigned order #${orderId.slice(-6)} to pack!`,
+        'PICKER_TASK',
+        { orderId, storeId },
+      )
+      .catch((e) =>
+        this.logger.error(
+          `Failed to send push notification to picker ${availablePicker.userId}:`,
+          e,
+        ),
+      );
+
+    // 6. Broadcast push notification to ALL pickers linked to this store
+    const allStorePickers = await this.prisma.storePicker.findMany({
+      where: { storeId },
+      select: { userId: true },
+    });
+
+    for (const p of allStorePickers) {
+      if (p.userId !== availablePicker.userId) {
+        this.notificationsService
+          .send(
+            p.userId,
+            'New Store Order Accepted 📦',
+            `Order #${orderId.slice(-6)} accepted at dark store. Packing in progress.`,
+            'PICKER_TASK',
+            { orderId, storeId },
+          )
+          .catch(() => {});
+      }
+    }
 
     this.logger.log(
       `Order ${orderId} auto-assigned to picker ${availablePicker.name} (${availablePicker.id})`,
     );
-    // Notify the picker via Expo Push Notification
-    this.notificationsService.send(
-      availablePicker.userId,
-      'New Packing Task 📦',
-      'You have been assigned a new store order to pack!',
-      'PICKER_TASK',
-      { orderId, storeId }
-    ).catch(e => this.logger.error(`Failed to send push notification to picker ${availablePicker.userId}:`, e));
-
-    this.logger.log(`Order ${orderId} auto-assigned to picker ${availablePicker.name} (${availablePicker.id})`);
     return availablePicker.id;
   }
 

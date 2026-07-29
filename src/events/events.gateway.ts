@@ -107,6 +107,22 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
         }
       }
 
+      // 6c. If user is a STORE_PICKER, auto-join them to their store room
+      if ((session.user as any).role === 'STORE_PICKER') {
+        const picker = await this.prisma.storePicker.findUnique({
+          where: { userId: session.user.id },
+          select: { storeId: true },
+        });
+        if (picker?.storeId) {
+          const storeRoom = `store_${picker.storeId}`;
+          client.join(storeRoom);
+          client.data.storeId = picker.storeId;
+          this.logger.log(
+            `Store picker ${client.id} auto-joined room ${storeRoom}`,
+          );
+        }
+      }
+
       // 7. Auto-rejoin active order rooms on reconnect
       //    This handles internet drops, app restarts, and background kills
       await this.rejoinActiveOrderRooms(client, session.user);
