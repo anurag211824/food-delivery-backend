@@ -56,9 +56,9 @@ export class GroceryCatalogService {
       distanceKm: getDistance(lat, lng, store.lat, store.lng),
     }));
 
-    // Find the closest active store within 10 km limit
+    // Find the closest active store within 5 km Zepto delivery radius limit
     const activeStoresInRange = storesWithDistance
-      .filter((s) => s.distanceKm <= 10)
+      .filter((s) => s.distanceKm <= 5)
       .sort((a, b) => a.distanceKm - b.distanceKm);
 
     const closestStore = activeStoresInRange[0] || null;

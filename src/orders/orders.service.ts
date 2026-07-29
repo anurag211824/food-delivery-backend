@@ -159,6 +159,15 @@ export class OrdersService {
           store.lat,
           store.lng,
         );
+
+        // 🚀 Zepto-level Dark Store Geofence Guard (5.0 km Max Delivery Radius)
+        const MAX_STORE_RADIUS_KM = 5.0;
+        if (distanceKm > MAX_STORE_RADIUS_KM) {
+          throw new BadRequestException(
+            `Store "${store.name}" does not deliver to your address. Distance (${distanceKm.toFixed(1)} km) exceeds maximum delivery radius of ${MAX_STORE_RADIUS_KM} km.`,
+          );
+        }
+
         deliveryCharge = Math.min(60, Math.round(15 + distanceKm * 7));
       }
 
