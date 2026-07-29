@@ -9,6 +9,7 @@ import { PickerStatus, Role, User, Prisma, OrderStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EventsGateway } from '../events/events.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
+import { WalletsService } from '../wallets/wallets.service';
 import { auth } from '../lib/auth';
 import { StatsPeriod } from '../restaurants/dto/get-stats.dto';
 
@@ -20,6 +21,7 @@ export class StoreManagementService {
     private readonly prisma: PrismaService,
     private readonly eventsGateway: EventsGateway,
     private readonly notificationsService: NotificationsService,
+    private readonly walletsService: WalletsService,
   ) {}
 
   // ─── ADD A PICKER TO THE STORE ──────────────────────────────────────────
@@ -825,5 +827,196 @@ export class StoreManagementService {
       count: o._count.id,
       percentage: total > 0 ? Math.round((o._count.id / total) * 100) : 0,
     }));
+  }
+
+  // ─── PICKER PARTIAL FULFILLMENT & OUT-OF-STOCK AUTO-REFUND ──────────────
+  async partiallyFulfillOrder(
+    pickerUserId: string,
+    orderId: string,
+    itemUpdates: { orderItemId: string; newQuantity: number }[],
+  ) {
+    const picker = await this.prisma.storePicker.findUnique({
+      where: { userId: pickerUserId },
+    });
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: { items: true, customer: true, store: true },
+    });
+
+    if (!order) throw new NotFoundException('Order not found.');
+    if (order.type !== 'GROCERY') {
+      throw new BadRequestException(
+        'Partial fulfillment is only applicable for Instamart grocery orders.',
+      );
+    }
+    if (order.status !== 'ACCEPTED' && order.status !== 'PREPARING') {
+      throw new BadRequestException(
+        `Order cannot be partially fulfilled in '${order.status}' status.`,
+      );
+    }
+
+    if (picker && order.pickerId && order.pickerId !== picker.id) {
+      throw new ForbiddenException(
+        'This order is assigned to another picker.',
+      );
+    }
+
+    // Process adjustments
+    let newCalculatedItemTotal = 0;
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      for (const update of itemUpdates) {
+        const existingItem = order.items.find((i) => i.id === update.orderItemId);
+        if (!existingItem) continue;
+
+        if (update.newQuantity <= 0) {
+          // Item completely unavailable — delete line item and restore inventory stock if needed
+          await tx.orderItem.delete({ where: { id: existingItem.id } });
+          if (existingItem.productId && order.storeId) {
+            await tx.storeInventory.updateMany({
+              where: {
+                storeId: order.storeId,
+                productId: existingItem.productId,
+              },
+              data: { stock: { increment: existingItem.quantity } },
+            });
+          }
+        } else if (update.newQuantity < existingItem.quantity) {
+          // Quantity reduced — update line item and restore excess stock
+          const diff = existingItem.quantity - update.newQuantity;
+          const newTotalPrice = existingItem.unitPrice * update.newQuantity;
+
+          await tx.orderItem.update({
+            where: { id: existingItem.id },
+            data: { quantity: update.newQuantity, totalPrice: newTotalPrice },
+          });
+
+          if (existingItem.productId && order.storeId) {
+            await tx.storeInventory.updateMany({
+              where: {
+                storeId: order.storeId,
+                productId: existingItem.productId,
+              },
+              data: { stock: { increment: diff } },
+            });
+          }
+        }
+      }
+
+      // Fetch fresh items after updates
+      const updatedItems = await tx.orderItem.findMany({ where: { orderId } });
+      if (updatedItems.length === 0) {
+        throw new BadRequestException(
+          'Cannot remove all items from order. Cancel the order instead.',
+        );
+      }
+
+      newCalculatedItemTotal = updatedItems.reduce(
+        (acc, item) => acc + item.totalPrice,
+        0,
+      );
+      const newTax = Math.round(newCalculatedItemTotal * 0.05 * 100) / 100;
+      const newCommission =
+        Math.round(newCalculatedItemTotal * 0.1 * 100) / 100;
+      const newTotalAmount =
+        Math.round(
+          (newCalculatedItemTotal +
+            newTax +
+            order.deliveryCharge +
+            order.platformFee +
+            order.driverTip -
+            order.discount) *
+            100,
+        ) / 100;
+
+      const oldTotalAmount = order.totalAmount;
+      const differenceToRefund = Math.max(0, oldTotalAmount - newTotalAmount);
+
+      const updatedOrder = await tx.order.update({
+        where: { id: orderId },
+        data: {
+          itemTotal: newCalculatedItemTotal,
+          tax: newTax,
+          commission: newCommission,
+          totalAmount: newTotalAmount,
+        },
+        include: { items: true },
+      });
+
+      return { updatedOrder, differenceToRefund };
+    });
+
+    // If order was prepaid and there is a price drop, issue instant wallet refund
+    if (order.isPaid && result.differenceToRefund > 0) {
+      await this.walletsService.addFunds(
+        order.customerId,
+        result.differenceToRefund,
+        `REFUND_PARTIAL_FULFILLMENT:${order.id}`,
+        `Auto-refund of ₹${result.differenceToRefund.toFixed(2)} — item(s) out of stock in order #${order.id.slice(-6)}`,
+      );
+
+      await this.prisma.refund.create({
+        data: {
+          orderId: order.id,
+          amount: result.differenceToRefund,
+          reason: 'PICKER_PARTIAL_FULFILLMENT: Out of stock item adjustment',
+          status: 'PROCESSED',
+          isAuto: true,
+        },
+      });
+    }
+
+    // Notify customer
+    this.eventsGateway.emitOrderStatusChange(order.id, 'PREPARING');
+    this.notificationsService.send(
+      order.customerId,
+      'Order Item Adjustment 📦',
+      `Your grocery order #${order.id.slice(-6)} was updated by the dark store. ${result.differenceToRefund > 0 ? `₹${result.differenceToRefund.toFixed(2)} refunded to your wallet.` : ''}`,
+      'ORDER_UPDATE',
+      { orderId: order.id },
+    );
+
+    return {
+      message: 'Order partially fulfilled and updated successfully.',
+      refundedAmount: result.differenceToRefund,
+      order: result.updatedOrder,
+    };
+  }
+
+  // ─── VERIFY BARCODE / SKU FOR PICKERS ────────────────────────────────────
+  async verifyBarcode(orderId: string, barcode: string) {
+    const product = await this.prisma.product.findFirst({
+      where: {
+        OR: [{ barcode }, { sku: barcode }],
+      },
+    });
+
+    if (!product) {
+      return {
+        matches: false,
+        message: `Barcode/SKU "${barcode}" not found in product catalog.`,
+      };
+    }
+
+    const orderItem = await this.prisma.orderItem.findFirst({
+      where: { orderId, productId: product.id },
+    });
+
+    if (!orderItem) {
+      return {
+        matches: false,
+        productName: product.name,
+        message: `Product "${product.name}" is NOT part of order #${orderId.slice(-6)}.`,
+      };
+    }
+
+    return {
+      matches: true,
+      productId: product.id,
+      productName: product.name,
+      quantityNeeded: orderItem.quantity,
+      message: `Verified match! Pick ${orderItem.quantity} unit(s) of "${product.name}".`,
+    };
   }
 }

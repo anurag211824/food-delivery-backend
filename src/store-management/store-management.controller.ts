@@ -279,10 +279,55 @@ export class StoreManagementController {
   }
 
   @Get('picker/orders')
-  @Roles(Role.STORE_PICKER)
+  @Roles(Role.STORE_PICKER, Role.STORE_MANAGER, Role.ADMIN)
   @ApiOperation({ summary: '[Picker] Get my assigned orders to pick' })
   @ApiResponse({ status: 200, description: 'List of assigned orders' })
   async getMyOrders(@Req() req: AuthenticatedRequest) {
     return this.storeManagementService.getPickerOrders(req.user.id);
+  }
+
+  @Patch('picker/orders/:orderId/partial-fulfill')
+  @Roles(Role.STORE_PICKER, Role.STORE_MANAGER, Role.ADMIN)
+  @ApiOperation({
+    summary: '[Picker/Manager] Adjust order items for missing/out-of-stock items & auto-refund',
+  })
+  @ApiParam({ name: 'orderId', description: 'Order ID to adjust' })
+  @ApiBody({
+    schema: {
+      example: {
+        itemUpdates: [{ orderItemId: 'cuid_1', newQuantity: 1 }],
+      },
+    },
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Order adjusted and difference refunded to user wallet',
+  })
+  async partiallyFulfillOrder(
+    @Param('orderId') orderId: string,
+    @Body('itemUpdates')
+    itemUpdates: { orderItemId: string; newQuantity: number }[],
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.storeManagementService.partiallyFulfillOrder(
+      req.user.id,
+      orderId,
+      itemUpdates,
+    );
+  }
+
+  @Get('picker/orders/:orderId/verify-barcode')
+  @Roles(Role.STORE_PICKER, Role.STORE_MANAGER, Role.ADMIN)
+  @ApiOperation({
+    summary: '[Picker] Verify scanned barcode/SKU against order line items',
+  })
+  @ApiParam({ name: 'orderId' })
+  @ApiQuery({ name: 'barcode', example: '8901030700012' })
+  @ApiResponse({ status: 200, description: 'Barcode verification result' })
+  async verifyBarcode(
+    @Param('orderId') orderId: string,
+    @Query('barcode') barcode: string,
+  ) {
+    return this.storeManagementService.verifyBarcode(orderId, barcode);
   }
 }

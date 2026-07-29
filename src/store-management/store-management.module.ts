@@ -2,11 +2,12 @@ import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { EventsModule } from '../events/events.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { WalletsModule } from '../wallets/wallets.module';
 import { StoreManagementController } from './store-management.controller';
 import { StoreManagementService } from './store-management.service';
 
 @Module({
-  imports: [PrismaModule, EventsModule, NotificationsModule],
+  imports: [PrismaModule, EventsModule, NotificationsModule, WalletsModule],
   controllers: [StoreManagementController],
   providers: [StoreManagementService],
   exports: [StoreManagementService],
