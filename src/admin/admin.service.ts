@@ -913,4 +913,118 @@ export class AdminService {
       store,
     };
   }
+
+  // ─── ADMIN: LIST ALL STORES ───────────────────────────────────────────────
+  async listStores(page = 1, limit = 20, storeName?: string) {
+    const skip = (page - 1) * limit;
+    const where =
+      storeName && storeName.trim() !== ''
+        ? { name: { contains: storeName.trim(), mode: 'insensitive' as const } }
+        : {};
+
+    const [data, total] = await Promise.all([
+      this.prisma.store.findMany({
+        where,
+        skip,
+        take: limit,
+        include: {
+          manager: {
+            select: { id: true, name: true, email: true, phoneNumber: true },
+          },
+          categories: { select: { id: true, name: true, image: true } },
+          _count: { select: { inventory: true, orders: true, pickers: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.store.count({ where }),
+    ]);
+
+    return { data, total, page, limit };
+  }
+
+  // ─── ADMIN: TOGGLE STORE ACTIVE STATUS ────────────────────────────────────
+  async toggleStoreActive(id: string, isActive: boolean) {
+    const store = await this.prisma.store.findUnique({ where: { id } });
+    if (!store) {
+      throw new NotFoundException(`Store with ID "${id}" not found.`);
+    }
+    return this.prisma.store.update({
+      where: { id },
+      data: { isActive },
+    });
+  }
+
+  // ─── ADMIN: TOGGLE STORE VERIFICATION ─────────────────────────────────────
+  async verifyStore(id: string, isVerified: boolean) {
+    const store = await this.prisma.store.findUnique({ where: { id } });
+    if (!store) {
+      throw new NotFoundException(`Store with ID "${id}" not found.`);
+    }
+    return this.prisma.store.update({
+      where: { id },
+      data: { isVerified },
+    });
+  }
+
+  // ─── ADMIN: GET STORE BY ID ───────────────────────────────────────────────
+  async getStoreById(id: string) {
+    const store = await this.prisma.store.findUnique({
+      where: { id },
+      include: {
+        manager: {
+          select: { id: true, name: true, email: true, phoneNumber: true },
+        },
+        categories: { select: { id: true, name: true } },
+        _count: {
+          select: {
+            inventory: true,
+            categories: true,
+          },
+        },
+      },
+    });
+    if (!store) {
+      throw new NotFoundException(`Store with ID "${id}" not found.`);
+    }
+    return store;
+  }
+
+  // ─── ADMIN: LIST STORE CATEGORIES ────────────────────────────────────────
+  async listStoreCategories(storeId?: string) {
+    const where = storeId ? { storeId } : {};
+    return this.prisma.storeCategory.findMany({
+      where,
+      include: {
+        store: { select: { id: true, name: true } },
+        _count: { select: { inventoryItems: true } },
+      },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  // ─── ADMIN: LIST STORE INVENTORY ITEMS ───────────────────────────────────
+  async listStoreInventory(storeId?: string, search?: string) {
+    const where: any = {};
+    if (storeId) where.storeId = storeId;
+    if (search) {
+      where.product = {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' as const } },
+          { brand: { contains: search, mode: 'insensitive' as const } },
+          { sku: { contains: search, mode: 'insensitive' as const } },
+        ],
+      };
+    }
+
+    return this.prisma.storeInventory.findMany({
+      where,
+      include: {
+        store: { select: { id: true, name: true } },
+        product: true,
+        category: { select: { id: true, name: true } },
+      },
+      orderBy: { product: { createdAt: 'desc' } },
+      take: 100,
+    });
+  }
 }

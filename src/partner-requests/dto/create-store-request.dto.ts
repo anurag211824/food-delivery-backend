@@ -61,4 +61,28 @@ export class CreateStoreRequestDto {
   @IsOptional()
   @IsString()
   bannerUrl?: string;
+
+  @ApiPropertyOptional({
+    example: '12345678901234',
+    description: 'FSSAI License Code',
+  })
+  @IsOptional()
+  @IsString()
+  fssaiCode?: string;
+
+  @ApiPropertyOptional({
+    example: 'https://cloudinary.com/fssaidoc.png',
+    description: 'FSSAI Document URL',
+  })
+  @IsOptional()
+  @IsString()
+  fssaiDocUrl?: string;
+
+  @ApiPropertyOptional({
+    example: 'https://cloudinary.com/gstdoc.png',
+    description: 'GST Document URL',
+  })
+  @IsOptional()
+  @IsString()
+  gstDocUrl?: string;
 }

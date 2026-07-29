@@ -170,6 +170,9 @@ export class PartnerRequestsService {
         gstNumber: dto.gstNumber,
         logoUrl: dto.logoUrl,
         bannerUrl: dto.bannerUrl,
+        fssaiCode: dto.fssaiCode,
+        fssaiDocUrl: dto.fssaiDocUrl,
+        gstDocUrl: dto.gstDocUrl,
       },
     });
 

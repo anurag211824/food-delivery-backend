@@ -101,6 +101,84 @@ export class AdminController {
     return this.adminService.createStore(dto);
   }
 
+  @Get('stores')
+  @ApiOperation({
+    summary: '[Admin] List all registered grocery stores',
+    description:
+      'Returns all stores regardless of active status, explicitly for admin listing.',
+  })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiQuery({
+    name: 'storeName',
+    required: false,
+    description: 'Search by store name',
+  })
+  async listStores(
+    @Query('page') page = '1',
+    @Query('limit') limit = '20',
+    @Query('storeName') storeName?: string,
+  ) {
+    return this.adminService.listStores(
+      Math.max(1, parseInt(page, 10)),
+      Math.min(100, Math.max(1, parseInt(limit, 10))),
+      storeName,
+    );
+  }
+
+  @Get('stores/:id')
+  @ApiOperation({ summary: '[Admin] Get single dark store details by ID' })
+  @ApiParam({ name: 'id' })
+  async getStoreById(@Param('id') id: string) {
+    return this.adminService.getStoreById(id);
+  }
+
+  @Patch('stores/:id/activate')
+  @ApiOperation({ summary: '[Admin] Activate a store' })
+  @ApiParam({ name: 'id' })
+  async activateStore(@Param('id') id: string) {
+    return this.adminService.toggleStoreActive(id, true);
+  }
+
+  @Patch('stores/:id/deactivate')
+  @ApiOperation({ summary: '[Admin] Deactivate (ban) a store' })
+  @ApiParam({ name: 'id' })
+  async deactivateStore(@Param('id') id: string) {
+    return this.adminService.toggleStoreActive(id, false);
+  }
+
+  @Patch('stores/:id/verify')
+  @ApiOperation({ summary: '[Admin] Verify a store' })
+  @ApiParam({ name: 'id' })
+  async verifyStore(@Param('id') id: string) {
+    return this.adminService.verifyStore(id, true);
+  }
+
+  @Patch('stores/:id/unverify')
+  @ApiOperation({ summary: '[Admin] Unverify a store' })
+  @ApiParam({ name: 'id' })
+  async unverifyStore(@Param('id') id: string) {
+    return this.adminService.verifyStore(id, false);
+  }
+
+  @Get('store-categories')
+  @ApiOperation({ summary: '[Admin] List store categories across dark stores' })
+  @ApiQuery({ name: 'storeId', required: false })
+  async listStoreCategories(@Query('storeId') storeId?: string) {
+    return this.adminService.listStoreCategories(storeId);
+  }
+
+  @Get('store-inventory')
+  @ApiOperation({ summary: '[Admin] List store inventory items across dark stores' })
+  @ApiQuery({ name: 'storeId', required: false })
+  @ApiQuery({ name: 'search', required: false })
+  async listStoreInventory(
+    @Query('storeId') storeId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.adminService.listStoreInventory(storeId, search);
+  }
+
   // ─── BAN / VERIFY RESTAURANT ──────────────────────────────────────────────
   @Patch('restaurants/:id/activate')
   @ApiOperation({ summary: '[Admin] Activate a restaurant' })
