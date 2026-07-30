@@ -17,6 +17,7 @@ export class ReviewsService {
       where: { id: dto.orderId },
       include: {
         restaurant: true,
+        store: true,
         driver: true,
       },
     });
@@ -48,7 +49,8 @@ export class ReviewsService {
         data: {
           orderId: order.id,
           userId: userId,
-          restaurantId: order.restaurantId!,
+          restaurantId: order.restaurantId ?? undefined,
+          storeId: order.storeId ?? undefined,
           foodRating: dto.foodRating,
           deliveryRating: dto.deliveryRating,
           comment: dto.comment,
@@ -56,7 +58,7 @@ export class ReviewsService {
       });
 
       // Recalculate Restaurant Rating (only for food orders)
-      if (order.restaurant) {
+      if (order.restaurant && order.restaurantId) {
         const newRestCount = order.restaurant.ratingCount + 1;
         const newRestRating =
           (order.restaurant.rating * order.restaurant.ratingCount +
@@ -64,7 +66,7 @@ export class ReviewsService {
           newRestCount;
 
         await tx.restaurant.update({
-          where: { id: order.restaurantId! },
+          where: { id: order.restaurantId },
           data: {
             rating: newRestRating,
             ratingCount: newRestCount,

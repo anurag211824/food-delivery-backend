@@ -551,8 +551,11 @@ model Review {
   userId String
   user   User   @relation(fields: [userId], references: [id])
 
-  restaurantId String
-  restaurant   Restaurant @relation(fields: [restaurantId], references: [id])
+  restaurantId String?
+  restaurant   Restaurant? @relation(fields: [restaurantId], references: [id])
+
+  storeId String?
+  store   Store?   @relation(fields: [storeId], references: [id])
 
   foodRating     Int // 1-5
   deliveryRating Int // 1-5
@@ -561,6 +564,7 @@ model Review {
   createdAt DateTime @default(now())
 
   @@index([restaurantId])
+  @@index([storeId])
   @@index([userId])
 }
 
@@ -888,6 +892,7 @@ model Store {
   orders      Order[]          @relation("StoreOrders")
   pickers     StorePicker[]
   settlements Settlement[]
+  reviews     Review[]
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -1000,6 +1005,9 @@ model StoreRequest {
   gstNumber   String?
   logoUrl     String?
   bannerUrl   String?
+  fssaiCode   String?
+  fssaiDocUrl String?
+  gstDocUrl   String?
 
   // Admin Review
   status          RequestStatus @default(PENDING)
